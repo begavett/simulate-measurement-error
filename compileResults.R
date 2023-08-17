@@ -37,7 +37,6 @@ sim_results_plotdat <- sim_results %>%
          N_fac = factor(N, levels = c(100, 500, 1000), labels = paste0("N = ", c(100, 500, 1000))))
 
 sim_results_plotdat %>%
-  mutate(difference = Estimate - true_beta) %>%
   group_by(MeasurementError) %>%
   summarise(m = mean(difference))
 
@@ -58,7 +57,7 @@ ggplot(sim_results_plotdat, aes(x = rel_x, y = difference, colour = N_fac, fill 
   #stat_summary(fun.data = mean_se, geom = "errorbar", position = "dodge") +
   #geom_violin(position = "dodge") +
   geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(true_beta_fac ~ MeasurementError_fac, scale = "free_y") +
+  facet_grid(true_beta_fac ~ MeasurementError_fac, scales = "free_y") +
   geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
   ylab("Estimated vs. True Effect Size") +
   xlab("Reliability of X") +
