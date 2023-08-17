@@ -1,7 +1,7 @@
-# The src/doSimulations.R file runs one simulation across all specified combinations of manipulated parameters.
+# The doSimulations.R file runs one simulation across all specified combinations of manipulated parameters.
 # However, issues with compiling c++ code and threading creates errors when trying to run simulations
 # that require interfacing with Stan (e.g., brms). 
-# This code provides a mechanism for running multiple instances of src/doSimulations.R in parallel and saving
+# This code provides a mechanism for running multiple instances of doSimulations.R in parallel and saving
 # the results to the output folder. 
 # After editing the src/doSimulations.R file, run this file to execute the simulations.
 
