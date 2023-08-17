@@ -5,7 +5,8 @@ p_load(dplyr, tidyr, magrittr, ggplot2, cowplot, forcats, data.table)
 # Compile results ----------------------------------------
 
 sim_results_files <- list.files(path = "output", pattern = "simulation[0-9]+.Rds", full.names=TRUE)
-sim_results <- lapply(sim_results_files, readRDS) %>%
+sim_results <- sim_results_files %>%
+  lapply(readRDS) %>%
   rbindlist() %>%
   select(-data) %>%
   pivot_longer(cols = lm_est:blav_sem_est,
@@ -21,16 +22,16 @@ sim_results <- lapply(sim_results_files, readRDS) %>%
   rename(true_beta = beta)
 
 sim_results_atten_x <- sim_results %>%
-  filter(MeasurementError == "None (BRMS)") %>%
+  filter(MeasurementError == "None (LM)") %>%
   mutate(Estimate = Estimate/sqrt(rel_x),
-         MeasurementError = "On X (Atten)")
+         MeasurementError = "On X (Atten/LM)")
 
 sim_results_plotdat <- sim_results %>%
   bind_rows(sim_results_atten_x) %>%
   mutate(difference = Estimate - true_beta,
          MeasurementError_fac = factor(MeasurementError) %>%
            fct_relevel(c("None (LM)", "None (BRMS)", "On X (BRMS)", 
-                         "On X (Atten)", "On Y (BRMS)", "On X and Y (BRMS)",
+                         "On X (Atten/LM)", "On Y (BRMS)", "On X and Y (BRMS)",
                          "On X and Y (lavaan)", "On X and Y (blavaan)")),
          true_beta_fac = factor(true_beta, levels = c(.1, .4, .7), labels = c("B = .1", "B = .4", "B = .7")) %>%
            fct_rev(),
