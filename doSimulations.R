@@ -34,7 +34,7 @@ source("src/simData.R")
 # to generate person-specific factor scores and standard errors for Y (ADNI-Mem)
 source("src/simulateMirtFscores.R")
 
-# Function to ompile and execute a list of models (e.g., lm, Bayesian lm with and without measurement error) 
+# Function to compile and execute a list of models (e.g., lm, Bayesian lm with and without measurement error) 
 # to compare
 source("src/runModels.R")
 
@@ -76,8 +76,7 @@ results <- expand_grid(sim = 1:num_sims,
                        N = list_N,
                        beta = list_beta) %>%
   mutate(data = list(tibble()),
-         fits = list(list()),
-         lm_est = NA)
+         fits = list(list()))
 
 
 # Run Simulated Models ----------------------------------------------------
