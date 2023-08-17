@@ -8,7 +8,7 @@
 library(pacman)
 p_load(rstudioapi, dplyr)
 
-num_sims <- 33 # How many total simulations to be run
+num_sims <- 500 # How many total simulations to be run
 max_cores <- 16 # How many cores to devote to running the simulations in parallel
 
 run_order <- split(1:num_sims, ceiling(seq_along(1:num_sims)/max_cores))
