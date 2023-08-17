@@ -6,15 +6,20 @@
 # After editing the doSimulations.R file, run this file to execute the simulations.
 
 library(pacman)
-p_load(rstudioapi)
+p_load(rstudioapi, dplyr)
 
-num_sims <- 16 # How many total simulations to be run
+num_sims <- 33 # How many total simulations to be run
 max_cores <- 16 # How many cores to devote to running the simulations in parallel
 
 run_order <- split(1:num_sims, ceiling(seq_along(1:num_sims)/max_cores))
 sim_code <- readLines("doSimulations.R")
 
 for(i in 1:length(run_order)) {
+  
+  if(i == 1){
+    file.remove(list.files(path = "output", full.names = TRUE), recursive = FALSE)
+  }
+  
   for(j in run_order[[i]]) {
     sim_code_j <- gsub("999999999", j, sim_code)
     writeLines(sim_code_j, paste0("temp_sim_", j, ".R"))
@@ -22,6 +27,9 @@ for(i in 1:length(run_order)) {
   }
   Sys.sleep(2)
   file.remove(paste0("temp_sim_", run_order[[i]], ".R"))
+  while(!file.exists(paste0("output/simulation", last(run_order[[i]]), ".Rds"))) {
+    Sys.sleep(10)
+  }
 }
 
 
