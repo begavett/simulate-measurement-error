@@ -17,7 +17,7 @@ sim_code <- readLines("doSimulations.R")
 for(i in 1:length(run_order)) {
   
   if(i == 1){
-    file.remove(list.files(path = "output", full.names = TRUE))
+    file.remove(list.files(path = "output", full.names = TRUE), recursive = FALSE)
   }
   
   for(j in run_order[[i]]) {
