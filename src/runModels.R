@@ -69,7 +69,9 @@ runModels <- function(data_in, rel_x.){
     lst(lm_fit, brm_nome_fit, brm_wmey_fit, brm_wmex_fit, brm_wmexy_fit, lav_sem_fit, blav_sem_fit)
   }
   
-  out <- estimate_models(data_in %>%
-                           mutate(x_err = sem_x))
+  out <- data_in %>%
+    mutate(x_err = sem_x) %>%
+    estimate_models()
+  
   return(out)
 }
