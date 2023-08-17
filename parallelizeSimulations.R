@@ -3,7 +3,7 @@
 # that require interfacing with Stan (e.g., brms). 
 # This code provides a mechanism for running multiple instances of doSimulations.R in parallel and saving
 # the results to the output folder. 
-# After editing the src/doSimulations.R file, run this file to execute the simulations.
+# After editing the doSimulations.R file, run this file to execute the simulations.
 
 library(pacman)
 p_load(rstudioapi)
