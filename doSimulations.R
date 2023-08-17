@@ -122,4 +122,5 @@ results_est <- results %>%
            sapply("[", 9, "est")) %>%
   select(-fits)
 
+dir.create("output", showWarnings = FALSE)
 saveRDS(results_est, paste0("output/simulation", iteration_number, ".Rds")) # DO NOT EDIT
