@@ -10,16 +10,3 @@ simData <- function(N = 100001, rel_x = .7225, true_beta = .6) {
   df <- as.data.frame(t(rbind(x,x_obs,y)))
   return(as.data.table(df))
 }
-# 
-# out <- simData(seed = 8938)
-# 
-# cor(out)
-# psych::describe(out)
-# # Correction for attenuation
-# cor(out$x_obs,out$y)*(1/sqrt(1*a^2))
-# 
-# 
-# library(mirt)
-# 
-# 
-# ?mirt
