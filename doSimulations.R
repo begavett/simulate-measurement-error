@@ -25,7 +25,7 @@ iteration_number <- 999999999 # DO NOT EDIT
 library(pacman)
 p_load(dplyr, tidyr, magrittr, psych, mirt, data.table, 
        lavaan, blavaan, readr, progress,
-       ggplot2, cowplot, forcats, hablar, stringr)
+       ggplot2, cowplot, forcats, hablar)
 
 # Function to generate ("true" Y, "true" X, and observed Y according to user-specified covariance matrix)
 source("src/simData.R") 
@@ -122,4 +122,4 @@ results_est <- results %>%
            sapply("[", 9, "est")) %>%
   select(-fits)
 
-saveRDS(results_est, paste0("output/simulation", str_pad(iteration_number, width = 4, pad = "0"), ".Rds")) # DO NOT EDIT
+saveRDS(results_est, paste0("output/simulation", iteration_number, ".Rds")) # DO NOT EDIT
