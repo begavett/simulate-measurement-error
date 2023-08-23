@@ -11,7 +11,7 @@ p_load(rstudioapi, dplyr)
 num_sims <- 500 # How many total simulations to be run
 max_cores <- 16 # How many cores to devote to running the simulations in parallel
 
-run_order <- split(1:num_sims, ceiling(seq_along(1:num_sims)/max_cores))
+run_order <- split(1:num_sims, ceiling((1:num_sims)/max_cores))
 sim_code <- readLines("doSimulations.R")
 
 for(i in 1:length(run_order)) {
