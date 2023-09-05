@@ -6,7 +6,7 @@
 # After editing the doSimulations.R file, run this file to execute the simulations.
 
 library(pacman)
-p_load(rstudioapi, dplyr)
+p_load(rstudioapi, dplyr, parallel)
 
 num_sims <- 500 # How many total simulations to be run
 max_cores <- floor((parallel::detectCores() - 1)/4)
