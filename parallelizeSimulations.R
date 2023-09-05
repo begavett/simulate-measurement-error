@@ -8,8 +8,8 @@
 library(pacman)
 p_load(rstudioapi, dplyr)
 
-num_sims <- 12 # How many total simulations to be run
-max_cores <- 6 # How many cores to devote to running the simulations in parallel
+num_sims <- 500 # How many total simulations to be run
+max_cores <- 20 # How many cores to devote to running the simulations in parallel
 
 run_order <- split(1:num_sims, ceiling((1:num_sims)/max_cores))
 sim_code <- readLines("doSimulations.R")
