@@ -8,17 +8,22 @@
 library(pacman)
 p_load(rstudioapi, dplyr, parallel)
 
-num_sims <- 500 # How many total simulations to be run
+num_sims <- 250 # How many total simulations to be run
 max_cores <- floor((parallel::detectCores() - 1)/4)
+start_at <- 1
 
-run_order <- split(1:num_sims, ceiling((1:num_sims)/max_cores))
+run_order <- split(start_at:(start_at + num_sims - 1), ceiling((1:num_sims)/max_cores))
 sim_code <- readLines("doSimulations.R")
 dir.create("output", showWarnings = FALSE)
 
+set.seed(8675309)
 for(i in 1:length(run_order)) {
   
-  if(i == 1){
+  if(i == 1 & start_at == 1){
     file.remove(list.files(path = "output", full.names = TRUE))
+    file.remove(list.files(path = "logs", full.names = TRUE))
+    file.remove(list.files(path = "simdata", full.names = TRUE))
+    file.remove(list.files(path = "fits", full.names = TRUE))
   }
   
   for(j in run_order[[i]]) {
