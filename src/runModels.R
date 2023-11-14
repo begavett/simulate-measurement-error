@@ -6,10 +6,11 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
   # This function runs a number of linear models using the same data.
   # The models include:
   # 1. A standard linear model using the lm() function
-  # 2. A Bayesian linear regression, using the brm() function, that does not account for measurement error on Y or X.
-  # 3. A Bayesian linear regression, using the brm() function, that accounts for measurement error in Y but not in X.
-  # 4. A Bayesian linear regression, using the brm() function, that accounts for measurement error in X but not in Y.
-  # 5. A Bayesian linear regression, using the brm() function, that accounts for measurement error in both Y and X.
+  # 2. A standard linear model using the lm() function, but with "plausible values" factor scores instead of "EAP" factor scores
+  # 3. A Bayesian linear regression, using the brm() function, that does not account for measurement error on Y or X.
+  # 4. A Bayesian linear regression, using the brm() function, that accounts for measurement error in Y but not in X.
+  # 5. A Bayesian linear regression, using the brm() function, that accounts for measurement error in X but not in Y.
+  # 6. A Bayesian linear regression, using the brm() function, that accounts for measurement error in both Y and X.
   
   # Arguments to the function include:
   
@@ -42,7 +43,7 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
   ## 6) Memory ~ Executive
   ## 7) Language ~ Executive
   ## 8) Executive ~ Language
-  # Subsumed under these top-level lists are lists (length 5) of the fits from the models described above.
+  # Subsumed under these top-level lists are lists (length 6) of the fits from the models described above.
   
   require(dplyr)
   require(purrr)

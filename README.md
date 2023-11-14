@@ -1,11 +1,11 @@
 # Instructions
 
 - To run simulations as currently constructed, use the `parallelizeSimulations.R` file.
-  - Editing the `max_cores` object may be necessary depending on the computer being used.
+  - If starting from scratch, set `start_at` to 1. This will delete all previous simulation files, so plan accordingly.
+  - If continuing after having already run some simulations, set `start_at` to the next number in sequence. This will not delete old simulation data.
 - The files in the "src" folder control the features of the simulations.
-  - In particular, `src/runModels.R` includes syntax for the 7 different models being compared in the initial development of this project.
-  - `src/simData.R` simulates the "true" values of x and y, as well as the observed values of x.
-  - `src/simulateMirtFscores.R` simulates the observed values of y; these are dependent upon the simulated values of "true" y as well as item parameters (discrimination and thresholds) from an IRT model (currently derived using parameters from a 40-item version of ADNI-Mem)
+  - In particular, `src/runModels.R` includes syntax for the 6 different models being compared in the initial development of this project.
+  - `src/simulateMirtFscores.R` generates random values for theta for x and y with a user-specified correlation between x and y. IRT models (based on the parameter files stored in the `data` folder) are then used to generate simulated item responses, which are in turn converted to factor scores; these factor scores represent the observed scores that are subsequently analyzed in `src/runModels.R`
 - `doSimulations.R` (run via `parallelizeSimulations.R`) is the driver of the simulations, and can be edited if the simulation parameters (e.g., N, beta, reliability) need to be changed.
 - `compileResults.R` imports the simulated data and summarizes it (mostly graphically for now).
 - Some of the R code is documented, but this could be improved.

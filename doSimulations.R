@@ -1,20 +1,29 @@
 # This file runs simulations of linear regression models that show how results differ when
 # accounting for vs. not accounting for measurement error in IVs and DVs using various methods.
 # Manipulated parameters include the sample size and true correlation between X and Y.
-# Y consists of factor scores generated from the parameter estimates for ADNI-Mem (Crane et al.) 
-# and vary by individual depending on the level of the underlying latent trait and the pattern of 
-# observed item responses (also simulated)
-# X is a random variable generated via simulation. Its error is scale-specific, not person-specific,
-# and is defined as SD(X) * sqrt(1 - rel(X)), where rel(X) is the reliability of X.
+# Y and X get permuted to include the following 8 regression models:
+# Memory ~ Visuospatial
+# Visuospatial ~ Memory
+# Memory ~ Language
+# Language ~ Memory
+# Memory ~ Executive
+# Executive ~ Memory
+# Language ~ Executive
+# Executive ~ Memory
 #
-# There are currently 7 different approaches to comparing how controlling for measurement error affects results.
-## 1. Simple linear regression with no corrections for measurement error
+# Based on work from Paul Crane's lab, Memory is highly reliable. Visuospatial is a very bad scale
+# (thus only used in one set of models)
+# and Language and Executive are decent scales, but not as good as Memory.
+#
+# Each factor score has a person-specific standard error that is used in some of the models.
+#
+# There are currently 6 different approaches to comparing how controlling for measurement error affects results.
+## 1. Simple linear regression with no corrections for measurement error (EAP factor scores)
+## 2. Simple linear regression with no corrections for measurement error (plausible values factor scores)
 ## 2. Bayesian linear regression with brms that does not correct for measurement error
 ## 3. Bayesian linear regression with brms that corrects for measurement error in Y
 ## 4. Bayesian linear regression with brms that corrects for measurement error in X
 ## 5. Bayesian linear regression with brms that corrects for measurement error in X and Y
-## 6. Structural equation modeling with lavaan that corrects for measurement error in X and Y
-## 7. Bayesian structural equation modeling with blavaan that corrects for measurement error in X and Y
 ### The src/runModels.R file controls the models to be executed.
 
 iteration_number <- 999999999 # DO NOT EDIT
@@ -131,8 +140,8 @@ itemtypes_E <- Thresholds_E %>%
 
 # Set up Simulation Parameters --------------------------------------------
 
-list_N <- c(100, 500)#, 500, 1000) # List of sample sizes to simulate
-list_beta <- .5 #c(.1, .7) # List of "true" betas (y ~ x) to simulate
+list_N <- c(100, 500) # List of sample sizes to simulate
+list_beta <- .5 # List of "true" betas (y ~ x) to simulate
 num_sims <- 1 #DO NOT EDIT 
 
 results <- expand_grid(sim = iteration_number,
