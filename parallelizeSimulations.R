@@ -10,7 +10,7 @@ p_load(rstudioapi, dplyr, parallel)
 
 num_sims <- 250 # How many total simulations to be run
 max_cores <- floor((parallel::detectCores() - 1)/4)
-start_at <- 1
+start_at <- 1 # WARNING: Setting this to 1 starts over and deletes all previously saved simulation files.
 
 run_order <- split(start_at:(start_at + num_sims - 1), ceiling((1:num_sims)/max_cores))
 sim_code <- readLines("doSimulations.R")

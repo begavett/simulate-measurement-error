@@ -80,17 +80,34 @@ sim_results_summary %>%
   datatable(options = list(pageLength = 20)) %>%
   formatRound(4, 2)
 
-n_success_plot <- ggplot(sim_results_summary, aes(x = N_fac, y = pct, fill = Regression)) +
+n_success_plot1 <- ggplot(sim_results_summary %>% filter(str_detect(Regression, "VS")), aes(x = N_fac, y = pct, fill = Regression)) +
   geom_col(position = "dodge") +
   theme_cowplot() +
-  scale_fill_viridis_d(option = "turbo") +
+  #scale_fill_viridis_d(option = "turbo") +
+  scale_fill_brewer(palette = "Dark2") +
+  xlab("Sample Size") +
+  ylab("Percent of Acceptable Simulations") +
+  facet_grid(true_beta_fac ~ MeasurementError_fac, scales = "free_y") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10),
+        axis.text = element_text(size = 10))
+
+ggsave("plots/n_success1.png", n_success_plot1, height = 2.5, width = 10.5, units = "in")
+
+n_success_plot2 <- ggplot(sim_results_summary %>% filter(!str_detect(Regression, "VS")), aes(x = N_fac, y = pct, fill = Regression)) +
+  geom_col(position = position_dodge2(reverse = TRUE), colour = "black") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
   #scale_fill_brewer(palette = "Dark2") +
   xlab("Sample Size") +
   ylab("Percent of Acceptable Simulations") +
   facet_grid(true_beta_fac ~ MeasurementError_fac, scales = "free_y") +
-  theme(axis.title.y = element_text(size=10))
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10),
+        axis.text = element_text(size = 10)) +
+  coord_flip()
 
-ggsave("plots/n_success.png", n_success_plot, height = 2.5, width = 10.5, units = "in")
+ggsave("plots/n_success2.png", n_success_plot2, height = 7.51, width = 13.32/4, units = "in")
   
 
 ggplot(sim_results_plotdat, aes(x = N_fac, y = Estimate, fill = Regression)) +
@@ -120,15 +137,17 @@ bias_plot1 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS")
   #geom_boxplot(position = "dodge", fill = NA) +
   #geom_violin(position = "dodge") +
   #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
   geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
   ylab("Estimated vs. True Effect Size (Bias)") +
   xlab("Sample Size") +
   theme_cowplot() +
-  scale_fill_viridis_d(option = "cividis", begin = .4) +
-  #scale_fill_brewer(palette = "Dark2") +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
   #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10))
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10))
 
 ggsave("plots/bias1.png", bias_plot1, height = 2.5, width = 10.5, units = "in")
 
@@ -146,12 +165,14 @@ bias_plot2 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"
   ylab("Estimated vs. True Effect Size (Bias)") +
   xlab("Sample Size") +
   theme_cowplot() +
-  scale_fill_viridis_d(begin = .3, option = "cividis") +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
   #scale_fill_brewer(palette = "Dark2") +
   #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10))
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Bias")
 
-ggsave("plots/bias2.png", bias_plot2, height = 2.5, width = 10.5, units = "in")
+ggsave("plots/bias2.png", bias_plot2, height = 7.51, width = 13.32, units = "in")
 
 
 relative_bias <- sim_results_plotdat %>%
@@ -173,12 +194,14 @@ relative_bias <- sim_results_plotdat %>%
   ylab("|Bias| Relative to None (LM)") +
   xlab("Sample Size") +
   theme_cowplot() +
-  scale_fill_viridis_d(begin = .3, option = "cividis") +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
   #scale_fill_brewer(palette = "Dark2") +
   #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10))
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Relative Bias", subtitle = "Compared to linear model with EAP factor scores (left facet)")
 
-ggsave("plots/relative_bias.png", relative_bias, height = 12.5, width = 12.5, units = "in", bg = "white")
+ggsave("plots/relative_bias.png", relative_bias, height = 7.51, width = 13.32, units = "in", bg = "white")
 
 
 # 
@@ -240,7 +263,7 @@ ef_plot <- ggplot(sim_data_comp, aes(x = EF_FS, y = EF_FS_SE)) +
 ggsave("plots/fs_se.png", height = 7.51, width = 13.32, units = "in")
 
 vs_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = VS_FS)) +
-  geom_point(colour = brewer.pal(3, "Dark2")[2]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   xlab("Memory Factor Score") +
   ylab("Visuospatial Factor Score") +
@@ -248,10 +271,12 @@ vs_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = VS_FS)) +
   ylim(-4, 4) +
   ggtitle("VS ~ Memory",
           subtitle = paste0("b = ", round(coef(lm(VS_FS ~ Mem_FS, data = sim_data_comp))["Mem_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 mem_on_vs <- ggplot(sim_data_comp, aes(x = VS_FS, y = Mem_FS)) +
-  geom_point(colour = brewer.pal(3, "Dark2")[1]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   ylab("Memory Factor Score") +
   xlab("Visuospatial Factor Score") +
@@ -259,10 +284,12 @@ mem_on_vs <- ggplot(sim_data_comp, aes(x = VS_FS, y = Mem_FS)) +
   ylim(-4, 4) +
   ggtitle("Memory ~ VS",
           subtitle = paste0("b = ", round(coef(lm(Mem_FS ~ VS_FS, data = sim_data_comp))["VS_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 lan_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = Lan_FS)) +
-  geom_point(colour = brewer.pal(3, "Dark2")[3]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   xlab("Memory Factor Score") +
   ylab("Language Factor Score") +
@@ -270,10 +297,12 @@ lan_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = Lan_FS)) +
   ylim(-4, 4) +
   ggtitle("Language ~ Memory",
           subtitle = paste0("b = ", round(coef(lm(Lan_FS ~ Mem_FS, data = sim_data_comp))["Mem_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 mem_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = Mem_FS)) +
-  geom_point(colour = brewer.pal(4, "Dark2")[4]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   ylab("Memory Factor Score") +
   xlab("Language Factor Score") +
@@ -281,10 +310,12 @@ mem_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = Mem_FS)) +
   ylim(-4, 4) +
   ggtitle("Memory ~ Language",
           subtitle = paste0("b = ", round(coef(lm(Mem_FS ~ Lan_FS, data = sim_data_comp))["Lan_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 ef_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = EF_FS)) +
-  geom_point(colour = brewer.pal(5, "Dark2")[5]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   xlab("Memory Factor Score") +
   ylab("Executive Factor Score") +
@@ -292,10 +323,12 @@ ef_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = EF_FS)) +
   ylim(-4, 4) +
   ggtitle("Executive ~ Memory",
           subtitle = paste0("b = ", round(coef(lm(EF_FS ~ Mem_FS, data = sim_data_comp))["Mem_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 mem_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Mem_FS)) +
-  geom_point(colour = brewer.pal(6, "Dark2")[6]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   ylab("Memory Factor Score") +
   xlab("Executive Factor Score") +
@@ -303,10 +336,12 @@ mem_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Mem_FS)) +
   ylim(-4, 4) +
   ggtitle("Memory ~ Executive",
           subtitle = paste0("b = ", round(coef(lm(Mem_FS ~ EF_FS, data = sim_data_comp))["EF_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 lan_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Lan_FS)) +
-  geom_point(colour = brewer.pal(7, "Dark2")[7]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   xlab("Executive Factor Score") +
   ylab("Language Factor Score") +
@@ -314,10 +349,12 @@ lan_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Lan_FS)) +
   ylim(-4, 4) +
   ggtitle("Language ~ Executive",
           subtitle = paste0("b = ", round(coef(lm(Lan_FS ~ EF_FS, data = sim_data_comp))["EF_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 ef_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = EF_FS)) +
-  geom_point(colour = brewer.pal(8, "Dark2")[8]) +
+  geom_hex() +
   geom_smooth(method = "lm", colour = "black") +
   ylab("Executive Factor Score") +
   xlab("Language Factor Score") +
@@ -325,7 +362,9 @@ ef_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = EF_FS)) +
   ylim(-4, 4) +
   ggtitle("Executive ~ Language",
           subtitle = paste0("b = ", round(coef(lm(EF_FS ~ Lan_FS, data = sim_data_comp))["Lan_FS"], 3))) +
-  theme_cowplot()
+  theme_cowplot() +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  scale_fill_viridis_c()
 
 mem_on_vs + vs_on_mem
 
@@ -343,9 +382,16 @@ lan_on_ef + ef_on_lan
 
 ggsave("plots/scatterLE.png", height = 7.51, width = 13.32, units = "in")
 
+
+(mem_on_vs | vs_on_mem | mem_on_lan | lan_on_mem) / (mem_on_ef | ef_on_mem | lan_on_ef | ef_on_lan)
+
+ggsave("plots/scatterAll.png", height = 7.51, width = 13.32, units = "in")
+
+
 mem_on_vs / vs_on_mem
 
 ggsave("plots/scatter2MV.png", width = 5, height = 13.32, units = "in")
+
 
 mem_on_lan / lan_on_mem
 
@@ -358,6 +404,7 @@ ggsave("plots/scatter2ME.png", width = 5, height = 13.32, units = "in")
 lan_on_ef / ef_on_lan
 
 ggsave("plots/scatter2LE.png", width = 5, height = 13.32, units = "in")
+
 
 ggplot(sim_data_comp %>% distinct(simdata, .keep_all = TRUE), aes(x = obs_cor)) +
   geom_histogram(fill = "peachpuff", colour = "#483D8B") +

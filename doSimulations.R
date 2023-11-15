@@ -40,8 +40,8 @@ dir.create("simdata", showWarnings = FALSE)
 dir.create("fits", showWarnings = FALSE)
 dir.create("logs", showWarnings = FALSE)
 
-# Function to generate simulated item responses (based on theta = "true" Y above) and use the simulated item responses
-# to generate person-specific factor scores and standard errors for Y (ADNI-Mem)
+# Function to generate simulated item responses and use the simulated item responses
+# to generate person-specific factor scores and standard errors for X and Y
 source("src/simulateMirtFscores.R")
 
 # Function to compile and execute a list of models (e.g., lm, Bayesian lm with and without measurement error) 
@@ -167,10 +167,14 @@ for (i in 1:nrow(results)) {
   
   tempdata <- simulateMirtFscores(.sample_size = results$N[i], 
                                   .true_beta = results$beta[i], 
-                                  .item_pars = list(mem = item_pars_M, vs = item_pars_V,
-                                                    lan = item_pars_L, ef = item_pars_E),
-                                  .item_types = list(mem = itemtypes_M, vs = itemtypes_V,
-                                                     lan = itemtypes_L, ef = itemtypes_E),
+                                  .item_pars = list(mem = item_pars_M, 
+                                                    vs = item_pars_V,
+                                                    lan = item_pars_L, 
+                                                    ef = item_pars_E),
+                                  .item_types = list(mem = itemtypes_M, 
+                                                     vs = itemtypes_V,
+                                                     lan = itemtypes_L, 
+                                                     ef = itemtypes_E),
                                   .item_names = list(mem = as.character(RecodedItemName_M$RecodedItemName),
                                                      vs = as.character(RecodedItemName_V$ItemStudyName),
                                                      lan = as.character(RecodedItemName_L$ItemStudyName),
@@ -197,8 +201,8 @@ for (i in 1:nrow(results)) {
   
   saveRDS(modelResults, paste0("fits/fits_", iteration_number, ".Rds"))
   
-  #rm(modelResults)
-  #rm(tempdata)
+  rm(modelResults)
+  rm(tempdata)
   pb$tick()
 
 }
@@ -237,12 +241,6 @@ results_est_m_on_v <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_m_on_v, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_m_on_v, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_m_on_v, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
@@ -277,12 +275,6 @@ results_est_v_on_m <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_v_on_m, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_v_on_m, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_v_on_m, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
@@ -317,12 +309,6 @@ results_est_l_on_m <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_l_on_m, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_l_on_m, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_l_on_m, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
@@ -357,12 +343,6 @@ results_est_e_on_m <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_e_on_m, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_e_on_m, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_e_on_m, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
@@ -397,12 +377,6 @@ results_est_m_on_l <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_m_on_l, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_m_on_l, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_m_on_l, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
@@ -437,12 +411,6 @@ results_est_m_on_e <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_m_on_e, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_m_on_e, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_m_on_e, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
@@ -477,12 +445,6 @@ results_est_l_on_e <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_l_on_e, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_l_on_e, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_l_on_e, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
@@ -517,12 +479,6 @@ results_est_e_on_l <- results %>%
            unlist(),
          brm_wmexy_pass = sapply(fits_e_on_l, "[", "brm_wmexy_fit_pass") %>%
            unlist()
-         # lav_sem_est = sapply(fits_e_on_l, "[", "lav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est"),
-         # blav_sem_est = sapply(fits_e_on_l, "[", "blav_sem_fit") %>%
-         #   sapply(lavaan::parameterestimates, simplify = FALSE) %>%
-         #   sapply("[", 17, "est")
   ) %>%
   select(-starts_with("fits_"))
 
