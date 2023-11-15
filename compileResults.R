@@ -5,7 +5,7 @@ p_load(dplyr, tidyr, magrittr, ggplot2, cowplot, forcats,
 
 # Compile results ----------------------------------------
 
-sim_results_files <- list.files(path = "output", pattern = "simulation[0-9]+.Rds", full.names=TRUE)
+sim_results_files <- list.files(path = "output", pattern = "simulation[0-9]+.Rds", full.names = TRUE)
 sim_results_list <- sim_results_files %>%
   lapply(readRDS)
 
@@ -37,9 +37,15 @@ sim_results_plotdat <- sim_results %>%
            fct_relevel(c("None (LM)", "None (LM) / PV", "None (BRMS)", "On X (BRMS)", 
                          "On Y (BRMS)", "On X and Y (BRMS)"
                          )),
-         true_beta_fac = factor(true_beta, levels = c(.1, .4, .5, .7), labels = c("B = .1", "B = .4", "B = .5", "B = .7")) %>%
+         true_beta_fac = factor(true_beta, 
+                                levels = unique(true_beta), 
+                                labels = paste0("B = ", 
+                                                unique(true_beta))) %>%
            fct_rev(),
-         N_fac = factor(N, levels = c(100, 500, 1000), labels = paste0("N = ", c(100, 500, 1000))),
+         N_fac = factor(N, 
+                        levels = unique(N), 
+                        labels = paste0("N = ", 
+                                        unique(N))),
          Regression = factor(Formula, levels = c("mem_on_v", 
                                                  "v_on_mem",
                                                  "mem_on_l", 
@@ -80,7 +86,8 @@ sim_results_summary %>%
   datatable(options = list(pageLength = 20)) %>%
   formatRound(4, 2)
 
-n_success_plot1 <- ggplot(sim_results_summary %>% filter(str_detect(Regression, "VS")), aes(x = N_fac, y = pct, fill = Regression)) +
+n_success_plot1 <- ggplot(sim_results_summary %>% filter(str_detect(Regression, "VS")), 
+                          aes(x = N_fac, y = pct, fill = Regression)) +
   geom_col(position = "dodge") +
   theme_cowplot() +
   #scale_fill_viridis_d(option = "turbo") +
@@ -94,7 +101,8 @@ n_success_plot1 <- ggplot(sim_results_summary %>% filter(str_detect(Regression, 
 
 ggsave("plots/n_success1.png", n_success_plot1, height = 2.5, width = 10.5, units = "in")
 
-n_success_plot2 <- ggplot(sim_results_summary %>% filter(!str_detect(Regression, "VS")), aes(x = N_fac, y = pct, fill = Regression)) +
+n_success_plot2 <- ggplot(sim_results_summary %>% filter(!str_detect(Regression, "VS")), 
+                          aes(x = N_fac, y = pct, fill = Regression)) +
   geom_col(position = position_dodge2(reverse = TRUE), colour = "black") +
   theme_cowplot() +
   scale_fill_viridis_d(begin = .3, option = "turbo") +
@@ -128,7 +136,8 @@ ggplot(sim_results_plotdat, aes(x = N_fac, y = Estimate, fill = Regression)) +
   #scale_fill_brewer(palette = "Dark2") +
   #scale_colour_brewer(palette = "Dark2")
 
-bias_plot1 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS")), aes(x = N_fac, y = difference, fill = Regression)) +
+bias_plot1 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS")), 
+                     aes(x = N_fac, y = difference, fill = Regression)) +
   #geom_col(position = "dodge") +
   #geom_jitter() +
   #stat_summary(fun = mean, geom = "point") + 
@@ -151,12 +160,14 @@ bias_plot1 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS")
 
 ggsave("plots/bias1.png", bias_plot1, height = 2.5, width = 10.5, units = "in")
 
-bias_plot2 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS")), aes(x = N_fac, y = difference, fill = Regression)) +
+bias_plot2 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS")), 
+                     aes(x = N_fac, y = difference, fill = Regression)) +
   #geom_col(position = "dodge") +
   #geom_jitter() +
   #stat_summary(fun = mean, geom = "point") + 
   stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
   #geom_boxplot(position = "dodge", fill = NA) +
   #geom_violin(position = "dodge") +
   #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
@@ -185,7 +196,8 @@ relative_bias <- sim_results_plotdat %>%
   #geom_jitter() +
   #stat_summary(fun = mean, geom = "point") + 
   stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
   #geom_boxplot(position = "dodge", fill = NA) +
   #geom_violin(position = "dodge") +
   #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
@@ -217,7 +229,7 @@ ggsave("plots/relative_bias.png", relative_bias, height = 7.51, width = 13.32, u
 # Data patterns -----------------------------------------------------------
 
 
-sim_data_files <- list.files(path = "simdata", pattern = "^simdata", full.names=TRUE)
+sim_data_files <- list.files(path = "simdata", pattern = "^simdata", full.names = TRUE)
 sim_data_list <- sim_data_files %>%
   lapply(read_csv)
 
@@ -421,7 +433,8 @@ random_25 <- sample(unique(sim_data_comp$simdata), 25)
 r25_vs_on_mem <- ggplot(sim_data_comp %>% filter(simdata %in% random_25) %>% 
          group_by(simdata) %>% 
          mutate(N_fac = factor(n()), 
-                r_fac = factor(round(obs_cor, 4), levels = round(obs_cor, 4), labels = paste0("r = ", round(obs_cor, 4)))) %>%
+                r_fac = factor(round(obs_cor, 4), levels = round(obs_cor, 4), 
+                               labels = paste0("r = ", round(obs_cor, 4)))) %>%
          ungroup(), 
        aes(x = Mem_FS, y = VS_FS, shape = N_fac)) +
   geom_point(colour = brewer.pal(3, "Dark2")[2]) +
@@ -440,7 +453,8 @@ r25_vs_on_mem <- ggplot(sim_data_comp %>% filter(simdata %in% random_25) %>%
 r25_mem_on_vs <- ggplot(sim_data_comp %>% filter(simdata %in% random_25) %>% 
                           group_by(simdata) %>% 
                           mutate(N_fac = factor(n()), 
-                                 r_fac = factor(round(obs_cor, 4), levels = round(obs_cor, 4), labels = paste0("r = ", round(obs_cor, 4)))) %>%
+                                 r_fac = factor(round(obs_cor, 4), levels = round(obs_cor, 4), 
+                                                labels = paste0("r = ", round(obs_cor, 4)))) %>%
                           ungroup(), 
                         aes(x = VS_FS, y = Mem_FS, shape = N_fac)) +
   geom_point(colour = brewer.pal(3, "Dark2")[1]) +
