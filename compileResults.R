@@ -33,10 +33,11 @@ sim_results <- sim_results_list %>%
 
 sim_results_plotdat <- sim_results %>%
   mutate(difference = Estimate - true_beta,
+         pct_bias = 100*difference/true_beta,
          MeasurementError_fac = factor(MeasurementError) %>%
            fct_relevel(c("None (LM)", "None (LM) / PV", "None (BRMS)", "On X (BRMS)", 
                          "On Y (BRMS)", "On X and Y (BRMS)"
-                         )),
+           )),
          true_beta_fac = factor(true_beta, 
                                 levels = unique(true_beta), 
                                 labels = paste0("B = ", 
@@ -67,7 +68,7 @@ sim_results_plotdat <- sim_results %>%
   ungroup()
 
 sim_results %>%
-  group_by(MeasurementError, N, Formula) %>%
+  group_by(MeasurementError, N, true_beta, Formula) %>%
   summarise(m = mean_(Estimate),
             sd = sd_(Estimate),
             n = sum_(!is.na(Estimate))) %>%
@@ -75,7 +76,7 @@ sim_results %>%
   data.frame()
 
 sim_results_summary <- sim_results_plotdat %>%
-  group_by(MeasurementError_fac, N_fac, Regression, true_beta_fac) %>%
+  group_by(MeasurementError_fac, N_fac, true_beta_fac, Regression) %>%
   summarise(m = mean_(difference),
             sd = sd_(difference),
             n = sum_(!is.na(difference))) %>%
@@ -84,7 +85,7 @@ sim_results_summary <- sim_results_plotdat %>%
 
 sim_results_summary %>%
   datatable(options = list(pageLength = 20)) %>%
-  formatRound(4, 2)
+  formatRound(5:6, 2)
 
 n_success_plot1 <- ggplot(sim_results_summary %>% filter(str_detect(Regression, "VS")), 
                           aes(x = N_fac, y = pct, fill = Regression)) +
@@ -116,7 +117,7 @@ n_success_plot2 <- ggplot(sim_results_summary %>% filter(!str_detect(Regression,
   coord_flip()
 
 ggsave("plots/n_success2.png", n_success_plot2, height = 7.51, width = 13.32/4, units = "in")
-  
+
 
 ggplot(sim_results_plotdat, aes(x = N_fac, y = Estimate, fill = Regression)) +
   #geom_jitter() +
@@ -133,11 +134,12 @@ ggplot(sim_results_plotdat, aes(x = N_fac, y = Estimate, fill = Regression)) +
   theme_cowplot() +
   scale_fill_viridis_d(option = "turbo") +
   scale_colour_viridis_d(option = "turbo")
-  #scale_fill_brewer(palette = "Dark2") +
-  #scale_colour_brewer(palette = "Dark2")
+#scale_fill_brewer(palette = "Dark2") +
+#scale_colour_brewer(palette = "Dark2")
 
-bias_plot1 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS")), 
-                     aes(x = N_fac, y = difference, fill = Regression)) +
+bias_plot1_b0.25 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
+                                                          true_beta == 0.25), 
+                           aes(x = N_fac, y = difference, fill = Regression)) +
   #geom_col(position = "dodge") +
   #geom_jitter() +
   #stat_summary(fun = mean, geom = "point") + 
@@ -156,12 +158,40 @@ bias_plot1 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS")
   #scale_colour_brewer(palette = "Dark2") +
   theme(axis.title.y = element_text(size=10),
         strip.text = element_text(size = 8),
-        axis.text = element_text(size = 10))
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias", subtitle = "\u03B2 = 0.25")
 
-ggsave("plots/bias1.png", bias_plot1, height = 2.5, width = 10.5, units = "in")
+ggsave("plots/bias1_b0.25.png", bias_plot1_b0.25, height = 2.5, width = 10.5, units = "in")
 
-bias_plot2 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS")), 
-                     aes(x = N_fac, y = difference, fill = Regression)) +
+bias_plot1_b0.5 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
+                                                         true_beta == 0.5), 
+                          aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/bias1_b0.5.png", bias_plot1_b0.5, height = 2.5, width = 10.5, units = "in")
+
+bias_plot2_0.25 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                         true_beta == 0.25), 
+                          aes(x = N_fac, y = difference, fill = Regression)) +
   #geom_col(position = "dodge") +
   #geom_jitter() +
   #stat_summary(fun = mean, geom = "point") + 
@@ -181,16 +211,149 @@ bias_plot2 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"
   #scale_colour_brewer(palette = "Dark2") +
   theme(axis.title.y = element_text(size=10),
         strip.text = element_text(size = 10)) +
-  ggtitle("Bias")
+  ggtitle("Bias", subtitle = "\u03B2 = 0.25")
 
-ggsave("plots/bias2.png", bias_plot2, height = 7.51, width = 13.32, units = "in")
+ggsave("plots/bias2_0.25.png", bias_plot2_0.25, height = 7.51, width = 13.32, units = "in")
+
+bias_plot2_b0.5 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                         true_beta == 0.5), 
+                          aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Bias", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/bias2_b0.5.png", bias_plot2_b0.5, height = 7.51, width = 13.32, units = "in")
+
+pct_bias_plot1_b0.25 <- ggplot(sim_results_plotdat %>% 
+                                 filter(str_detect(Regression, "VS"),
+                                        true_beta == 0.25),
+                               aes(x = N_fac, y = pct_bias, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "\u03B2 = 0.25")
+
+ggsave("plots/pct_bias1_b0.25.png", pct_bias_plot1_b0.25, height = 2.5, width = 10.5, units = "in")
+
+pct_bias_plot1_b0.5 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
+                                                         true_beta == 0.5), 
+                          aes(x = N_fac, y = pct_bias, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/pct_bias1_b0.5.png", pct_bias_plot1_b0.5, height = 2.5, width = 10.5, units = "in")
+
+pct_bias_plot2_0.25 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                         true_beta == 0.25), 
+                          aes(x = N_fac, y = pct_bias, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/pct_bias2_0.25.png", pct_bias_plot2_0.25, height = 7.51, width = 13.32, units = "in")
+
+pct_bias_plot2_b0.5 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                         true_beta == 0.5), 
+                          aes(x = N_fac, y = pct_bias, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/pct_bias2_b0.5.png", pct_bias_plot2_b0.5, height = 7.51, width = 13.32, units = "in")
 
 
-relative_bias <- sim_results_plotdat %>%
+
+relative_bias_b0.25 <- sim_results_plotdat %>%
+  filter(!str_detect(Regression, "VS"),
+         true_beta == 0.25) %>%
   group_by(N, Regression, sim) %>%
   mutate(vsLM = abs(difference) - abs(first(difference))) %>%
   ungroup() %>%
-  filter(!str_detect(Regression, "VS")) %>%
   ggplot(aes(x = N_fac, y = vsLM, fill = Regression)) +
   #geom_col(position = "dodge") +
   #geom_jitter() +
@@ -211,9 +374,41 @@ relative_bias <- sim_results_plotdat %>%
   #scale_colour_brewer(palette = "Dark2") +
   theme(axis.title.y = element_text(size=10),
         strip.text = element_text(size = 10)) +
-  ggtitle("Relative Bias", subtitle = "Compared to linear model with EAP factor scores (left facet)")
+  ggtitle("Relative Bias (\u03B2 = 0.25)", subtitle = "Compared to linear model with EAP factor scores (left facet)")
 
-ggsave("plots/relative_bias.png", relative_bias, height = 7.51, width = 13.32, units = "in", bg = "white")
+ggsave("plots/relative_bias_b0.25.png", relative_bias_b0.25, height = 7.51, width = 13.32, units = "in", bg = "white")
+
+
+relative_bias_b0.5 <- sim_results_plotdat %>%
+  filter(!str_detect(Regression, "VS"),
+         true_beta == 0.5) %>%
+  group_by(N, Regression, sim) %>%
+  mutate(vsLM = abs(difference) - abs(first(difference))) %>%
+  ungroup() %>%
+  ggplot(aes(x = N_fac, y = vsLM, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("|Bias| Relative to None (LM)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Relative Bias (\u03B2 = 0.5)", subtitle = "Compared to linear model with EAP factor scores (left facet)")
+
+ggsave("plots/relative_bias_b0.5.png", relative_bias_b0.5, height = 7.51, width = 13.32, units = "in", bg = "white")
+
 
 
 # 
@@ -239,44 +434,48 @@ sim_data_comp <- bind_rows(sim_data_list, .id = "simdata") %>%
   ungroup()
 
 mem_plot <- ggplot(sim_data_comp, aes(x = Mem_FS, y = Mem_FS_SE)) +
-  geom_point() +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
   xlab("Factor Score") +
   ylab("Standard Error") +
   ggtitle("Memory") +
   xlim(-4, 4) +
-  ylim(0, 1)
+  ylim(0, 1) +
+  scale_fill_viridis_c()
 
 vs_plot <- ggplot(sim_data_comp, aes(x = VS_FS, y = VS_FS_SE)) +
-  geom_point() +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
   xlab("Factor Score") +
   ylab("Standard Error") +
   ggtitle("Visuospatial") +
   xlim(-4, 4) +
-  ylim(0, 1)
+  ylim(0, 1) +
+  scale_fill_viridis_c()
 
 lan_plot <- ggplot(sim_data_comp, aes(x = Lan_FS, y = Lan_FS_SE)) +
-  geom_point() +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
   xlab("Factor Score") +
   ylab("Standard Error") +
   ggtitle("Language") +
   xlim(-4, 4) +
-  ylim(0, 1)
+  ylim(0, 1) +
+  scale_fill_viridis_c()
 
 ef_plot <- ggplot(sim_data_comp, aes(x = EF_FS, y = EF_FS_SE)) +
-  geom_point() +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
   xlab("Factor Score") +
   ylab("Standard Error") +
   ggtitle("Executive Function") +
   xlim(-4, 4) +
-  ylim(0, 1)
+  ylim(0, 1) +
+  scale_fill_viridis_c()
 
 (mem_plot + vs_plot) / (lan_plot + ef_plot)
 
 ggsave("plots/fs_se.png", height = 7.51, width = 13.32, units = "in")
 
 vs_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = VS_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   xlab("Memory Factor Score") +
   ylab("Visuospatial Factor Score") +
   xlim(-4, 4) +
@@ -284,12 +483,12 @@ vs_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = VS_FS)) +
   ggtitle("VS ~ Memory",
           subtitle = paste0("b = ", round(coef(lm(VS_FS ~ Mem_FS, data = sim_data_comp))["Mem_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
   scale_fill_viridis_c()
 
 mem_on_vs <- ggplot(sim_data_comp, aes(x = VS_FS, y = Mem_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   ylab("Memory Factor Score") +
   xlab("Visuospatial Factor Score") +
   xlim(-4, 4) +
@@ -297,12 +496,12 @@ mem_on_vs <- ggplot(sim_data_comp, aes(x = VS_FS, y = Mem_FS)) +
   ggtitle("Memory ~ VS",
           subtitle = paste0("b = ", round(coef(lm(Mem_FS ~ VS_FS, data = sim_data_comp))["VS_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
   scale_fill_viridis_c()
 
 lan_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = Lan_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   xlab("Memory Factor Score") +
   ylab("Language Factor Score") +
   xlim(-4, 4) +
@@ -310,12 +509,12 @@ lan_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = Lan_FS)) +
   ggtitle("Language ~ Memory",
           subtitle = paste0("b = ", round(coef(lm(Lan_FS ~ Mem_FS, data = sim_data_comp))["Mem_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
   scale_fill_viridis_c()
 
 mem_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = Mem_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   ylab("Memory Factor Score") +
   xlab("Language Factor Score") +
   xlim(-4, 4) +
@@ -323,12 +522,12 @@ mem_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = Mem_FS)) +
   ggtitle("Memory ~ Language",
           subtitle = paste0("b = ", round(coef(lm(Mem_FS ~ Lan_FS, data = sim_data_comp))["Lan_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
   scale_fill_viridis_c()
 
 ef_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = EF_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   xlab("Memory Factor Score") +
   ylab("Executive Factor Score") +
   xlim(-4, 4) +
@@ -336,12 +535,12 @@ ef_on_mem <- ggplot(sim_data_comp, aes(x = Mem_FS, y = EF_FS)) +
   ggtitle("Executive ~ Memory",
           subtitle = paste0("b = ", round(coef(lm(EF_FS ~ Mem_FS, data = sim_data_comp))["Mem_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
   scale_fill_viridis_c()
 
 mem_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Mem_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   ylab("Memory Factor Score") +
   xlab("Executive Factor Score") +
   xlim(-4, 4) +
@@ -349,12 +548,12 @@ mem_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Mem_FS)) +
   ggtitle("Memory ~ Executive",
           subtitle = paste0("b = ", round(coef(lm(Mem_FS ~ EF_FS, data = sim_data_comp))["EF_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
   scale_fill_viridis_c()
 
 lan_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Lan_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   xlab("Executive Factor Score") +
   ylab("Language Factor Score") +
   xlim(-4, 4) +
@@ -362,12 +561,12 @@ lan_on_ef <- ggplot(sim_data_comp, aes(x = EF_FS, y = Lan_FS)) +
   ggtitle("Language ~ Executive",
           subtitle = paste0("b = ", round(coef(lm(Lan_FS ~ EF_FS, data = sim_data_comp))["EF_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
   scale_fill_viridis_c()
 
 ef_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = EF_FS)) +
-  geom_hex() +
-  geom_smooth(method = "lm", colour = "black") +
+  geom_hex(bins = length(seq(-4, 4, .25))) +
+  geom_smooth(method = "lm", colour = "hotpink") +
   ylab("Executive Factor Score") +
   xlab("Language Factor Score") +
   xlim(-4, 4) +
@@ -375,8 +574,8 @@ ef_on_lan <- ggplot(sim_data_comp, aes(x = Lan_FS, y = EF_FS)) +
   ggtitle("Executive ~ Language",
           subtitle = paste0("b = ", round(coef(lm(EF_FS ~ Lan_FS, data = sim_data_comp))["Lan_FS"], 3))) +
   theme_cowplot() +
-  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "red") +
-  scale_fill_viridis_c()
+  geom_abline(intercept = 0, slope = .5, lty = 2, colour = "#BBFEAB", linewidth = 2) +
+  scale_fill_viridis_c(begin = .1)
 
 mem_on_vs + vs_on_mem
 
@@ -431,12 +630,12 @@ set.seed(84902)
 random_25 <- sample(unique(sim_data_comp$simdata), 25)
 
 r25_vs_on_mem <- ggplot(sim_data_comp %>% filter(simdata %in% random_25) %>% 
-         group_by(simdata) %>% 
-         mutate(N_fac = factor(n()), 
-                r_fac = factor(round(obs_cor, 4), levels = round(obs_cor, 4), 
-                               labels = paste0("r = ", round(obs_cor, 4)))) %>%
-         ungroup(), 
-       aes(x = Mem_FS, y = VS_FS, shape = N_fac)) +
+                          group_by(simdata) %>% 
+                          mutate(N_fac = factor(n()), 
+                                 r_fac = factor(round(obs_cor, 4), levels = round(obs_cor, 4), 
+                                                labels = paste0("r = ", round(obs_cor, 4)))) %>%
+                          ungroup(), 
+                        aes(x = Mem_FS, y = VS_FS, shape = N_fac)) +
   geom_point(colour = brewer.pal(3, "Dark2")[2]) +
   geom_smooth(method = "lm", colour = "black") +
   facet_wrap(~ fct_reorder(r_fac, obs_cor)) +
@@ -444,7 +643,7 @@ r25_vs_on_mem <- ggplot(sim_data_comp %>% filter(simdata %in% random_25) %>%
   scale_shape_discrete(name = "N") +
   theme_cowplot() +
   ggtitle("VS ~ Memory",
-  subtitle = "Random Selection of Simulated Data") +
+          subtitle = "Random Selection of Simulated Data") +
   xlim(-4, 4) +
   ylim(-4, 4) +
   xlab("Memory Factor Scores") +
@@ -469,7 +668,7 @@ r25_mem_on_vs <- ggplot(sim_data_comp %>% filter(simdata %in% random_25) %>%
   ylim(-4, 4) +
   ylab("Memory Factor Scores") +
   xlab("Visuospatial Factor Scores")
-  
+
 r25_mem_on_vs + r25_vs_on_mem
 
 ggsave("plots/rand25.png", height = 7.51, width = 13.32, units = "in")

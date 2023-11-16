@@ -141,7 +141,7 @@ itemtypes_E <- Thresholds_E %>%
 # Set up Simulation Parameters --------------------------------------------
 
 list_N <- c(100, 500) # List of sample sizes to simulate
-list_beta <- .5 # List of "true" betas (y ~ x) to simulate
+list_beta <- c(.25, .5) # List of "true" betas (y ~ x) to simulate
 num_sims <- 1 #DO NOT EDIT 
 
 results <- expand_grid(sim = iteration_number,
@@ -187,7 +187,7 @@ for (i in 1:nrow(results)) {
                             .iter = 2000, 
                             min_ess = 400, 
                             max_rhat = 1.05, 
-                            increment_iter_by = 2000, 
+                            increment_iter_by = 4000, 
                             max_iter = 10000)
   
   results$fits_m_on_v[[i]] <- modelResults$mem_on_v

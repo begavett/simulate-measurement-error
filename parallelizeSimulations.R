@@ -8,7 +8,7 @@
 library(pacman)
 p_load(rstudioapi, dplyr, parallel)
 
-num_sims <- 250 # How many total simulations to be run
+num_sims <- 1000 # How many total simulations to be run
 max_cores <- floor((parallel::detectCores() - 1)/4)
 start_at <- 1 # WARNING: Setting this to 1 starts over and deletes all previously saved simulation files.
 
