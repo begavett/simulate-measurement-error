@@ -1,4 +1,4 @@
-# The doSimulations.R file runs one simulation across all specified combinations of manipulated parameters.
+  # The doSimulations.R file runs one simulation across all specified combinations of manipulated parameters.
 # However, issues with compiling c++ code and threading creates errors when trying to run simulations
 # that require interfacing with Stan (e.g., brms). 
 # This code provides a mechanism for running multiple instances of doSimulations.R in parallel and saving
@@ -8,9 +8,9 @@
 library(pacman)
 p_load(rstudioapi, dplyr, parallel)
 
-num_sims <- 1000 # How many total simulations to be run
+num_sims <- 246 # How many total simulations to be run
 max_cores <- floor((parallel::detectCores() - 1)/4)
-start_at <- 1 # WARNING: Setting this to 1 starts over and deletes all previously saved simulation files.
+start_at <- 755 # WARNING: Setting this to 1 starts over and deletes all previously saved simulation files.
 
 run_order <- split(start_at:(start_at + num_sims - 1), ceiling((1:num_sims)/max_cores))
 sim_code <- readLines("doSimulations.R")
@@ -38,4 +38,6 @@ for(i in 1:length(run_order)) {
   }
 }
 
+rm(i)
+rm(j)
 

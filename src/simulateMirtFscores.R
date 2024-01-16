@@ -105,7 +105,9 @@ simulateMirtFscores <- function(.sample_size = 100,
     relocate(Mem_PV, .after = Mem_FS_SE) %>%
     relocate(VS_PV, .after = VS_FS_SE) %>%
     relocate(Lan_PV, .after = Lan_FS_SE) %>%
-    relocate(EF_PV, .after = EF_FS_SE)
+    relocate(EF_PV, .after = EF_FS_SE) %>%
+    mutate(n = .sample_size,
+           true_beta = .true_beta)
   
   return(as_tibble(mem_vs_lan_ef))
 }
