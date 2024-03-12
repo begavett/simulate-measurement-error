@@ -20,10 +20,10 @@
 # There are currently 6 different approaches to comparing how controlling for measurement error affects results.
 ## 1. Simple linear regression with no corrections for measurement error (EAP factor scores)
 ## 2. Simple linear regression with no corrections for measurement error (plausible values factor scores)
-## 2. Bayesian linear regression with brms that does not correct for measurement error
-## 3. Bayesian linear regression with brms that corrects for measurement error in Y
-## 4. Bayesian linear regression with brms that corrects for measurement error in X
-## 5. Bayesian linear regression with brms that corrects for measurement error in X and Y
+## 3. Bayesian linear regression with brms that does not correct for measurement error
+## 4. Bayesian linear regression with brms that corrects for measurement error in Y
+## 5. Bayesian linear regression with brms that corrects for measurement error in X
+## 6. Bayesian linear regression with brms that corrects for measurement error in X and Y
 ### The src/runModels.R file controls the models to be executed.
 
 iteration_number <- 999999999 # DO NOT EDIT
