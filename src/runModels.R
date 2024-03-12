@@ -100,21 +100,21 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     
     while (any(brm_nome_rhat > max_rhat) | any(brm_nome_ess < min_ess)) {
       
-      if (!exists("i")) {
-        i <- 1
+      if (!exists("j")) {
+        j <- 1
       } else {
-        i <- i + 1
+        j <- j + 1
       }
       
-      if (.iter + i*increment_iter_by <= max_iter) {
-        cat(paste0("\n\n## Attempt ", i + 1, " ---------------------------------------------------------------------\n"))
+      if (.iter + j*increment_iter_by <= max_iter) {
+        cat(paste0("\n\n## Attempt ", j + 1, " ---------------------------------------------------------------------\n"))
         brm_nome_fit <- brm(model_formula_0,
                             data = data_in,
                             chains = 4,
                             cores = 4,
                             silent = 2,
                             refresh = 0,
-                            iter = .iter + i*increment_iter_by)
+                            iter = .iter + j*increment_iter_by)
         
         print(brm_nome_fit)
         
@@ -130,6 +130,8 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
       }
       
     }
+    
+    rm(j)
     
     cat("\n\n# brms - ME correction on Y ---------------------------------------------------------------------\n")
     
@@ -154,21 +156,21 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     
     while (any(brm_wmey_rhat > max_rhat) | any(brm_wmey_ess < min_ess)) {
       
-      if (!exists("j")) {
-        j <- 1
+      if (!exists("k")) {
+        k <- 1
       } else {
-        j <- j + 1
+        k <- k + 1
       }
       
-      if (.iter + j*increment_iter_by <= max_iter) {
-        cat(paste0("\n\n## Attempt ", j + 1, " ---------------------------------------------------------------------\n"))
+      if (.iter + k*increment_iter_by <= max_iter) {
+        cat(paste0("\n\n## Attempt ", k + 1, " ---------------------------------------------------------------------\n"))
         brm_wmey_fit <- brm(model_formula_y,
                             data = data_in,
                             chains = 4,
                             cores = 4,
                             silent = 2,
                             refresh = 0,
-                            iter = .iter + j*increment_iter_by)
+                            iter = .iter + k*increment_iter_by)
         
         brm_wmey_rhat <- rhat(brm_wmey_fit)
         brm_wmey_ess <- c(summary(brm_wmey_fit)$fixed$Bulk_ESS,
@@ -186,6 +188,8 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
       
       
     }
+    
+    rm(k)
     
     cat("\n\n# brms - ME correction on X ---------------------------------------------------------------------\n")
     
@@ -210,14 +214,14 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     
     while (any(brm_wmex_rhat > max_rhat) | any(brm_wmex_ess < min_ess)) {
       
-      if (!exists("k")) {
-        k <- 1
+      if (!exists("l")) {
+        l <- 1
       } else {
-        k <- k + 1
+        l <- l + 1
       }
       
-      if (.iter + k*increment_iter_by <= max_iter) {
-        cat(paste0("\n\n## Attempt ", k + 1, " ---------------------------------------------------------------------\n"))
+      if (.iter + l*increment_iter_by <= max_iter) {
+        cat(paste0("\n\n## Attempt ", l + 1, " ---------------------------------------------------------------------\n"))
         
         brm_wmex_fit <- brm(bf(model_formula_x1) + bf(model_formula_x2) + set_rescor(rescor = FALSE),
                             data = data_in,
@@ -225,7 +229,7 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
                             cores = 4,
                             silent = 2,
                             refresh = 0,
-                            iter = .iter + k*increment_iter_by)
+                            iter = .iter + l*increment_iter_by)
         
         brm_wmex_rhat <- rhat(brm_wmex_fit)
         brm_wmex_ess <- c(summary(brm_wmex_fit)$fixed$Bulk_ESS,
@@ -243,6 +247,8 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
       
       
     }
+    
+    rm(l)
     
     cat("\n\n# brms - ME correction on Y and X ---------------------------------------------------------------------\n")
     
@@ -267,14 +273,14 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     
     while (any(brm_wmexy_rhat > max_rhat) | any(brm_wmexy_ess < min_ess)) {
       
-      if (!exists("l")) {
-        l <- 1
+      if (!exists("m")) {
+        m <- 1
       } else {
-        l <- l + 1
+        m <- m + 1
       }
       
-      if (.iter + l*increment_iter_by <= max_iter) {
-        cat(paste0("\n\n## Attempt ", l + 1, " ---------------------------------------------------------------------\n"))
+      if (.iter + m*increment_iter_by <= max_iter) {
+        cat(paste0("\n\n## Attempt ", m + 1, " ---------------------------------------------------------------------\n"))
         
         brm_wmexy_fit <- brm(bf(model_formula_yx1) + bf(model_formula_yx2) + set_rescor(rescor = FALSE),
                              data = data_in,
@@ -282,7 +288,7 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
                              cores = 4,
                              silent = 2,
                              refresh = 0,
-                             iter = .iter + l*increment_iter_by)
+                             iter = .iter + m*increment_iter_by)
         
         brm_wmexy_rhat <- rhat(brm_wmexy_fit)
         brm_wmexy_ess <- c(summary(brm_wmexy_fit)$fixed$Bulk_ESS,
@@ -298,15 +304,13 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
       }
     }
     
+    rm(m)
+    
     
     return(lst(lm_fit, pv_fit, brm_nome_fit, brm_wmey_fit, brm_wmex_fit, brm_wmexy_fit,
                lm_fit_pass, pv_fit_pass, brm_nome_fit_pass, brm_wmey_fit_pass, brm_wmex_fit_pass, brm_wmexy_fit_pass
                #lav_sem_fit, blav_sem_fit
     ))
-    rm(i)
-    rm(j)
-    rm(k)
-    rm(l)
   }
   
   out_m_on_v <- data_in %>%
