@@ -220,6 +220,7 @@ for (i in 1:nrow(results)) {
   
   rm(modelResults)
   rm(tempdata)
+  gc()
   pb$tick()
   
 }
@@ -1067,6 +1068,8 @@ results_est_e_on_l <- results %>%
   ) %>%
   select(-starts_with("fits_"))
 
+rm(results)
+gc()
 
 # Compile Results ---------------------------------------------------------
 

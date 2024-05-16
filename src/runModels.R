@@ -132,6 +132,8 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     }
     
     rm(j)
+    gc()
+    
     
     cat("\n\n# brms - ME correction on Y ---------------------------------------------------------------------\n")
     
@@ -190,6 +192,8 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     }
     
     rm(k)
+    gc()
+    
     
     cat("\n\n# brms - ME correction on X ---------------------------------------------------------------------\n")
     
@@ -249,6 +253,8 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     }
     
     rm(l)
+    gc()
+    
     
     cat("\n\n# brms - ME correction on Y and X ---------------------------------------------------------------------\n")
     
@@ -305,6 +311,7 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
     }
     
     rm(m)
+    gc()
     
     
     return(lst(lm_fit, pv_fit, brm_nome_fit, brm_wmey_fit, brm_wmex_fit, brm_wmexy_fit,
@@ -357,4 +364,6 @@ runModels <- function (data_in, inum = 1, .iter = 2000, min_ess = 400, max_rhat 
   sink()
   
   return(out)
+  
+  gc()
 }
