@@ -9,7 +9,7 @@
 # Memory ~ Executive
 # Executive ~ Memory
 # Language ~ Executive
-# Executive ~ Memory
+# Executive ~ Language
 #
 # Based on work from Paul Crane's lab, Memory is highly reliable. Visuospatial is a very bad scale
 # (thus only used in one set of models)
@@ -32,13 +32,22 @@ iteration_number <- 999999999 # DO NOT EDIT
 
 library(pacman)
 p_load(dplyr, tidyr, magrittr, psych, mirt, data.table, 
-       lavaan, blavaan, readr, progress, stringr,
+       lavaan, blavaan, readr, progress, stringr, flextable,
        ggplot2, cowplot, forcats, hablar, purrr, posterior)
 
 dir.create("output", showWarnings = FALSE)
 dir.create("simdata", showWarnings = FALSE)
 dir.create("fits", showWarnings = FALSE)
 dir.create("logs", showWarnings = FALSE)
+
+# Reproducibility: parallelizeSimulations.R rewrites iteration_number per job,
+# but each job is a fresh R session, so the seed must be set here.
+set.seed(iteration_number)
+
+# Persist compiled Stan executables ACROSS sessions. Without this, cmdstanr
+# writes to tempdir() and every session recompiles from scratch.
+dir.create("stan_cache", showWarnings = FALSE)
+options(cmdstanr_write_stan_file_dir = "stan_cache")
 
 # Function to generate simulated item responses and use the simulated item responses
 # to generate person-specific factor scores and standard errors for X and Y
@@ -47,6 +56,11 @@ source("src/simulateMirtFscores.R")
 # Function to compile and execute a list of models (e.g., lm, Bayesian lm with and without measurement error) 
 # to compare
 source("src/runModels.R")
+
+# Compile the 4 Stan structures ONCE for this session. Every model fit below is
+# update(..., recompile = FALSE) against these, so brm() compiles 4 times per
+# session instead of ~128.
+protos <- buildProtos(seed = as.integer(iteration_number) %% 100000L)
 
 # Function used to suppress some packages' output to the console.
 quiet <- function(x) { 
@@ -147,7 +161,8 @@ num_sims <- 1 #DO NOT EDIT
 results <- expand_grid(sim = iteration_number,
                        N = list_N,
                        beta = list_beta) %>%
-  mutate(mean_mem_fs = NA,
+  mutate(calibration_failed = FALSE,
+         mean_mem_fs = NA,
          sd_mem_fs = NA,
          mean_lan_fs = NA,
          sd_lan_fs = NA,
@@ -186,7 +201,16 @@ for (i in 1:nrow(results)) {
                                   .item_names = list(mem = as.character(RecodedItemName_M$RecodedItemName),
                                                      vs = as.character(RecodedItemName_V$ItemStudyName),
                                                      lan = as.character(RecodedItemName_L$ItemStudyName),
-                                                     ef = as.character(RecodedItemName_E$ItemStudyName)))
+                                                     ef = as.character(RecodedItemName_E$ItemStudyName)),
+                                  .sim_id = paste0(iteration_number, "_", i))
+  
+  if (is.null(tempdata)) {
+    message("Skipping condition ", i, " of iteration ", iteration_number,
+            " -- item calibration failed.")
+    results$calibration_failed[i] <- TRUE
+    pb$tick()
+    next
+  }
   
   results$mean_mem_fs[i] <- mean(tempdata$Mem_FS)
   results$sd_mem_fs[i] <- sd(tempdata$Mem_FS)
@@ -205,7 +229,8 @@ for (i in 1:nrow(results)) {
                             min_ess = 400, 
                             max_rhat = 1.05, 
                             increment_iter_by = 4000, 
-                            max_iter = 10000)
+                            max_iter = 10000,
+                            protos = protos)
   
   results$fits_m_on_v[[i]] <- modelResults$mem_on_v
   results$fits_v_on_m[[i]] <- modelResults$v_on_mem
@@ -216,7 +241,12 @@ for (i in 1:nrow(results)) {
   results$fits_l_on_e[[i]] <- modelResults$l_on_ef
   results$fits_e_on_l[[i]] <- modelResults$ef_on_l
   
-  saveRDS(modelResults, paste0("fits/fits_", iteration_number, "_N=", results$N[i], "_B=", results$beta[i], ".Rds"))
+  # Full brmsfit objects carry every posterior draw and the compiled model.
+  # Saving 32 of them per condition dominated disk and serialization time, and
+  # nothing downstream reads them. Set SAVE_FITS <- TRUE to restore for debugging.
+  if (isTRUE(getOption("SAVE_FITS", FALSE))) {
+    saveRDS(modelResults, paste0("fits/fits_", iteration_number, "_N=", results$N[i], "_B=", results$beta[i], ".Rds"))
+  }
   
   rm(modelResults)
   rm(tempdata)
@@ -238,16 +268,20 @@ results_est_m_on_v <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_m_on_v, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "VS_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_vs_fs^2)/(lm_est^2 * sd_vs_fs^2 + sd_mem_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_m_on_v, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_vs_fs / sqrt(lm_est^2 * sd_vs_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_m_on_v, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_m_on_v, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "VS_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_vs_fs^2)/(pv_est^2 * sd_vs_fs^2 + sd_mem_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_m_on_v, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_vs_fs / sqrt(pv_est^2 * sd_vs_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_m_on_v, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -258,7 +292,7 @@ results_est_m_on_v <- results %>%
     brm_nome_sig = sapply(fits_m_on_v, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_vs_fs^2)/(brm_nome_est^2 * sd_vs_fs^2 + sd_mem_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_vs_fs / sqrt(brm_nome_est^2 * sd_vs_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_m_on_v, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -273,7 +307,7 @@ results_est_m_on_v <- results %>%
     brm_wmey_sig = sapply(fits_m_on_v, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_vs_fs^2)/(brm_wmey_est^2 * sd_vs_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_vs_fs / sqrt(brm_wmey_est^2 * sd_vs_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_m_on_v, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -294,7 +328,7 @@ results_est_m_on_v <- results %>%
     brm_wmex_sig_x = sapply(fits_m_on_v, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_m_on_v, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -315,7 +349,7 @@ results_est_m_on_v <- results %>%
     brm_wmexy_sig_x = sapply(fits_m_on_v, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_m_on_v, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -343,16 +377,20 @@ results_est_v_on_m <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_v_on_m, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Mem_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_mem_fs^2)/(lm_est^2 * sd_mem_fs^2 + sd_vs_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_v_on_m, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_mem_fs / sqrt(lm_est^2 * sd_mem_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_v_on_m, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_v_on_m, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Mem_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_mem_fs^2)/(pv_est^2 * sd_mem_fs^2 + sd_vs_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_v_on_m, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_mem_fs / sqrt(pv_est^2 * sd_mem_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_v_on_m, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -363,7 +401,7 @@ results_est_v_on_m <- results %>%
     brm_nome_sig = sapply(fits_v_on_m, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_mem_fs^2)/(brm_nome_est^2 * sd_mem_fs^2 + sd_vs_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_mem_fs / sqrt(brm_nome_est^2 * sd_mem_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_v_on_m, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -378,7 +416,7 @@ results_est_v_on_m <- results %>%
     brm_wmey_sig = sapply(fits_v_on_m, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_mem_fs^2)/(brm_wmey_est^2 * sd_mem_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_mem_fs / sqrt(brm_wmey_est^2 * sd_mem_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_v_on_m, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -399,7 +437,7 @@ results_est_v_on_m <- results %>%
     brm_wmex_sig_x = sapply(fits_v_on_m, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_v_on_m, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -420,7 +458,7 @@ results_est_v_on_m <- results %>%
     brm_wmexy_sig_x = sapply(fits_v_on_m, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_v_on_m, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -448,16 +486,20 @@ results_est_l_on_m <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_l_on_m, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Mem_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_mem_fs^2)/(lm_est^2 * sd_mem_fs^2 + sd_lan_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_l_on_m, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_mem_fs / sqrt(lm_est^2 * sd_mem_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_l_on_m, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_l_on_m, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Mem_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_mem_fs^2)/(pv_est^2 * sd_mem_fs^2 + sd_lan_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_l_on_m, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_mem_fs / sqrt(pv_est^2 * sd_mem_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_l_on_m, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -468,7 +510,7 @@ results_est_l_on_m <- results %>%
     brm_nome_sig = sapply(fits_l_on_m, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_mem_fs^2)/(brm_nome_est^2 * sd_mem_fs^2 + sd_lan_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_mem_fs / sqrt(brm_nome_est^2 * sd_mem_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_l_on_m, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -483,7 +525,7 @@ results_est_l_on_m <- results %>%
     brm_wmey_sig = sapply(fits_l_on_m, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_mem_fs^2)/(brm_wmey_est^2 * sd_mem_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_mem_fs / sqrt(brm_wmey_est^2 * sd_mem_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_l_on_m, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -504,7 +546,7 @@ results_est_l_on_m <- results %>%
     brm_wmex_sig_x = sapply(fits_l_on_m, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_l_on_m, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -525,7 +567,7 @@ results_est_l_on_m <- results %>%
     brm_wmexy_sig_x = sapply(fits_l_on_m, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_l_on_m, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -553,16 +595,20 @@ results_est_e_on_m <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_e_on_m, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Mem_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_mem_fs^2)/(lm_est^2 * sd_mem_fs^2 + sd_lan_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_e_on_m, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_mem_fs / sqrt(lm_est^2 * sd_mem_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_e_on_m, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_e_on_m, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Mem_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_mem_fs^2)/(pv_est^2 * sd_mem_fs^2 + sd_lan_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_e_on_m, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_mem_fs / sqrt(pv_est^2 * sd_mem_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_e_on_m, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -573,7 +619,7 @@ results_est_e_on_m <- results %>%
     brm_nome_sig = sapply(fits_e_on_m, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_mem_fs^2)/(brm_nome_est^2 * sd_mem_fs^2 + sd_lan_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_mem_fs / sqrt(brm_nome_est^2 * sd_mem_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_e_on_m, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -588,7 +634,7 @@ results_est_e_on_m <- results %>%
     brm_wmey_sig = sapply(fits_e_on_m, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_mem_fs^2)/(brm_wmey_est^2 * sd_mem_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_mem_fs / sqrt(brm_wmey_est^2 * sd_mem_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_e_on_m, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -609,7 +655,7 @@ results_est_e_on_m <- results %>%
     brm_wmex_sig_x = sapply(fits_e_on_m, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_e_on_m, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -630,7 +676,7 @@ results_est_e_on_m <- results %>%
     brm_wmexy_sig_x = sapply(fits_e_on_m, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_e_on_m, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -658,16 +704,20 @@ results_est_m_on_l <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_m_on_l, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Lan_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_lan_fs^2)/(lm_est^2 * sd_lan_fs^2 + sd_mem_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_m_on_l, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_lan_fs / sqrt(lm_est^2 * sd_lan_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_m_on_l, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_m_on_l, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Lan_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_lan_fs^2)/(pv_est^2 * sd_lan_fs^2 + sd_mem_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_m_on_l, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_lan_fs / sqrt(pv_est^2 * sd_lan_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_m_on_l, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -678,7 +728,7 @@ results_est_m_on_l <- results %>%
     brm_nome_sig = sapply(fits_m_on_l, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_lan_fs^2)/(brm_nome_est^2 * sd_lan_fs^2 + sd_mem_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_lan_fs / sqrt(brm_nome_est^2 * sd_lan_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_m_on_l, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -693,7 +743,7 @@ results_est_m_on_l <- results %>%
     brm_wmey_sig = sapply(fits_m_on_l, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_lan_fs^2)/(brm_wmey_est^2 * sd_lan_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_lan_fs / sqrt(brm_wmey_est^2 * sd_lan_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_m_on_l, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -714,7 +764,7 @@ results_est_m_on_l <- results %>%
     brm_wmex_sig_x = sapply(fits_m_on_l, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_m_on_l, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -735,7 +785,7 @@ results_est_m_on_l <- results %>%
     brm_wmexy_sig_x = sapply(fits_m_on_l, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_m_on_l, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -763,16 +813,20 @@ results_est_m_on_e <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_m_on_e, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "EF_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_ef_fs^2)/(lm_est^2 * sd_ef_fs^2 + sd_mem_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_m_on_e, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_ef_fs / sqrt(lm_est^2 * sd_ef_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_m_on_e, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_m_on_e, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "EF_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_ef_fs^2)/(pv_est^2 * sd_ef_fs^2 + sd_mem_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_m_on_e, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_ef_fs / sqrt(pv_est^2 * sd_ef_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_m_on_e, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -783,7 +837,7 @@ results_est_m_on_e <- results %>%
     brm_nome_sig = sapply(fits_m_on_e, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_ef_fs^2)/(brm_nome_est^2 * sd_ef_fs^2 + sd_mem_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_ef_fs / sqrt(brm_nome_est^2 * sd_ef_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_m_on_e, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -798,7 +852,7 @@ results_est_m_on_e <- results %>%
     brm_wmey_sig = sapply(fits_m_on_e, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_ef_fs^2)/(brm_wmey_est^2 * sd_ef_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_ef_fs / sqrt(brm_wmey_est^2 * sd_ef_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_m_on_e, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -819,7 +873,7 @@ results_est_m_on_e <- results %>%
     brm_wmex_sig_x = sapply(fits_m_on_e, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_m_on_e, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -840,7 +894,7 @@ results_est_m_on_e <- results %>%
     brm_wmexy_sig_x = sapply(fits_m_on_e, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_m_on_e, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -868,16 +922,20 @@ results_est_l_on_e <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_l_on_e, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "EF_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_ef_fs^2)/(lm_est^2 * sd_ef_fs^2 + sd_lan_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_l_on_e, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_ef_fs / sqrt(lm_est^2 * sd_ef_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_l_on_e, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_l_on_e, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "EF_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_ef_fs^2)/(pv_est^2 * sd_ef_fs^2 + sd_lan_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_l_on_e, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_ef_fs / sqrt(pv_est^2 * sd_ef_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_l_on_e, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -888,7 +946,7 @@ results_est_l_on_e <- results %>%
     brm_nome_sig = sapply(fits_l_on_e, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_ef_fs^2)/(brm_nome_est^2 * sd_ef_fs^2 + sd_lan_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_ef_fs / sqrt(brm_nome_est^2 * sd_ef_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_l_on_e, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -903,7 +961,7 @@ results_est_l_on_e <- results %>%
     brm_wmey_sig = sapply(fits_l_on_e, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_ef_fs^2)/(brm_wmey_est^2 * sd_ef_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_ef_fs / sqrt(brm_wmey_est^2 * sd_ef_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_l_on_e, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -924,7 +982,7 @@ results_est_l_on_e <- results %>%
     brm_wmex_sig_x = sapply(fits_l_on_e, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_l_on_e, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -945,7 +1003,7 @@ results_est_l_on_e <- results %>%
     brm_wmexy_sig_x = sapply(fits_l_on_e, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_l_on_e, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -973,16 +1031,20 @@ results_est_e_on_l <- results %>%
       sapply(pluck, "(Intercept)"),
     lm_est = sapply(fits_e_on_l, "[", "lm_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Lan_FS"),
-    lm_est_st = sqrt((lm_est^2 * sd_lan_fs^2)/(lm_est^2 * sd_lan_fs^2 + sd_ef_fs^2)),
+      sapply(pluck, "x"),
+    lm_sig = sapply(fits_e_on_l, "[", "lm_fit") %>%
+      sapply(stats::sigma),
+    lm_est_st = lm_est * sd_lan_fs / sqrt(lm_est^2 * sd_lan_fs^2 + lm_sig^2),
     # Linear model with Plausible values factor scores
     pv_int = sapply(fits_e_on_l, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
       sapply(pluck, "(Intercept)"),
     pv_est = sapply(fits_e_on_l, "[", "pv_fit") %>%
       sapply(coef, simplify = FALSE) %>%
-      sapply(pluck, "Lan_PV"),
-    pv_est_st = sqrt((pv_est^2 * sd_lan_fs^2)/(pv_est^2 * sd_lan_fs^2 + sd_ef_fs^2)),
+      sapply(pluck, "x_pv"),
+    pv_sig = sapply(fits_e_on_l, "[", "pv_fit") %>%
+      sapply(stats::sigma),
+    pv_est_st = pv_est * sd_lan_fs / sqrt(pv_est^2 * sd_lan_fs^2 + pv_sig^2),
     # BRMS with no corrections for measurement error
     brm_nome_int = sapply(fits_e_on_l, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
@@ -993,7 +1055,7 @@ results_est_e_on_l <- results %>%
     brm_nome_sig = sapply(fits_e_on_l, "[", "brm_nome_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_nome_est_st = sqrt((brm_nome_est^2 * sd_lan_fs^2)/(brm_nome_est^2 * sd_lan_fs^2 + sd_ef_fs^2)),
+    brm_nome_est_st = brm_nome_est * sd_lan_fs / sqrt(brm_nome_est^2 * sd_lan_fs^2 + brm_nome_sig^2),
     brm_nome_pp_lt0 = sapply(fits_e_on_l, "[", "brm_nome_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -1008,7 +1070,7 @@ results_est_e_on_l <- results %>%
     brm_wmey_sig = sapply(fits_e_on_l, "[", "brm_wmey_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 3),
-    brm_wmey_est_st = sqrt((brm_wmey_est^2 * sd_lan_fs^2)/(brm_wmey_est^2 * sd_lan_fs^2 + brm_wmey_sig^2)),
+    brm_wmey_est_st = brm_wmey_est * sd_lan_fs / sqrt(brm_wmey_est^2 * sd_lan_fs^2 + brm_wmey_sig^2),
     brm_wmey_pp_lt0 = sapply(fits_e_on_l, "[", "brm_wmey_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 2) %>%
@@ -1029,7 +1091,7 @@ results_est_e_on_l <- results %>%
     brm_wmex_sig_x = sapply(fits_e_on_l, "[", "brm_wmex_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmex_est_st = sqrt((brm_wmex_est^2*brm_wmex_sig_x^2)/(brm_wmex_est^2*brm_wmex_sig_x^2 + brm_wmex_sig_y^2)),
+    brm_wmex_est_st = brm_wmex_est * brm_wmex_sig_x / sqrt(brm_wmex_est^2 * brm_wmex_sig_x^2 + brm_wmex_sig_y^2),
     brm_wmex_pp_lt0 = sapply(fits_e_on_l, "[", "brm_wmex_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%
@@ -1050,7 +1112,7 @@ results_est_e_on_l <- results %>%
     brm_wmexy_sig_x = sapply(fits_e_on_l, "[", "brm_wmexy_fit") %>%
       sapply(brms::posterior_summary, simplify = FALSE) %>%
       sapply(pluck, 5),
-    brm_wmexy_est_st = sqrt((brm_wmexy_est^2*brm_wmexy_sig_x^2)/(brm_wmexy_est^2*brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2)),
+    brm_wmexy_est_st = brm_wmexy_est * brm_wmexy_sig_x / sqrt(brm_wmexy_est^2 * brm_wmexy_sig_x^2 + brm_wmexy_sig_y^2),
     brm_wmexy_pp_lt0 = sapply(fits_e_on_l, "[", "brm_wmexy_fit") %>%
       sapply(posterior::as_draws_df, simplify = FALSE) %>%
       sapply("[", 3) %>%

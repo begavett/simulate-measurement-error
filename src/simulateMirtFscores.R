@@ -2,19 +2,20 @@ simulateMirtFscores <- function(.sample_size = 100,
                                 .true_beta = .5, 
                                 .item_pars = list(mem = NULL, vs = NULL, lan = NULL, ef = NULL),
                                 .item_types = list(mem = NULL, vs = NULL, lan = NULL, ef = NULL),
-                                .item_names = list(mem = NULL, vs = NULL, lan = NULL, ef = NULL)) {
+                                .item_names = list(mem = NULL, vs = NULL, lan = NULL, ef = NULL),
+                                .sim_id = NA) {
   
   require(mirt)
   require(magrittr)
   require(dplyr)
   
   thetas <- MASS::mvrnorm(n = .sample_size, 
-                     mu = c(0, 0, 0, 0),
-                     Sigma = matrix(c(1, .true_beta, .true_beta, .true_beta,
-                                    .true_beta, 1, .true_beta, .true_beta,
-                                    .true_beta, .true_beta, 1, .true_beta,
-                                    .true_beta, .true_beta, .true_beta, 1), 
-                                    ncol = 4)) %>%
+                          mu = c(0, 0, 0, 0),
+                          Sigma = matrix(c(1, .true_beta, .true_beta, .true_beta,
+                                           .true_beta, 1, .true_beta, .true_beta,
+                                           .true_beta, .true_beta, 1, .true_beta,
+                                           .true_beta, .true_beta, .true_beta, 1), 
+                                         ncol = 4)) %>%
     data.frame() %>%
     set_names(c("Mem_theta", "VS_theta", "Lan_theta", "EF_theta"))
   
@@ -58,21 +59,40 @@ simulateMirtFscores <- function(.sample_size = 100,
     as_tibble() %>%
     setnames(.item_names$ef)
   
-  mem_mirt <- mirt(data = sim_item_resp_M, model = paste0('Memory = 1-', ncol(sim_item_resp_M)),
-                       itemtype = "graded", verbose = FALSE) %>%
-    suppressMessages()
+  # Fit the four calibration models. Degenerate simulated datasets -- most often
+  # a visuospatial item with no response variance, a consequence of the ceiling
+  # effects in that scale -- make mirt() error out. Trap it, log it, and return
+  # NULL so the caller can skip the replication and count it.
+  fit_mirt <- function(dat, fname, domain) {
+    tryCatch(
+      suppressMessages(
+        mirt(data = dat,
+             model = paste0(fname, ' = 1-', ncol(dat)),
+             itemtype = "graded", verbose = FALSE)
+      ),
+      error = function(e) {
+        degenerate <- names(which(apply(dat, 2, function(z) length(unique(z[!is.na(z)]))) < 2))
+        msg <- sprintf("%s\t%s\tN=%s\tbeta=%s\t%s\tdegenerate_items=%s\t%s",
+                       format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+                       .sim_id, .sample_size, .true_beta, domain,
+                       if (length(degenerate)) paste(degenerate, collapse = ",") else "none",
+                       gsub("[\r\n\t]+", " ", conditionMessage(e)))
+        dir.create("logs", showWarnings = FALSE)
+        cat(msg, "\n", sep = "", file = "logs/mirt_failures.tsv", append = TRUE)
+        message("mirt() failed for ", domain, ": ", conditionMessage(e))
+        NULL
+      }
+    )
+  }
   
-  vs_mirt <- mirt(data = sim_item_resp_V, model = paste0('VS = 1-', ncol(sim_item_resp_V)),
-                   itemtype = "graded", verbose = FALSE) %>%
-    suppressMessages()
+  mem_mirt <- fit_mirt(sim_item_resp_M, "Memory", "memory")
+  vs_mirt  <- fit_mirt(sim_item_resp_V, "VS",     "visuospatial")
+  lan_mirt <- fit_mirt(sim_item_resp_L, "Lan",    "language")
+  ef_mirt  <- fit_mirt(sim_item_resp_E, "EF",     "executive")
   
-  lan_mirt <- mirt(data = sim_item_resp_L, model = paste0('Lan = 1-', ncol(sim_item_resp_L)),
-                  itemtype = "graded", verbose = FALSE) %>%
-    suppressMessages()
-  
-  ef_mirt <- mirt(data = sim_item_resp_E, model = paste0('EF = 1-', ncol(sim_item_resp_E)),
-                  itemtype = "graded", verbose = FALSE) %>%
-    suppressMessages()
+  if (is.null(mem_mirt) || is.null(vs_mirt) || is.null(lan_mirt) || is.null(ef_mirt)) {
+    return(NULL)
+  }
   
   sim_item_resp_M <- fscores(mem_mirt, full.scores.SE = TRUE) %>%
     data.frame() %>%

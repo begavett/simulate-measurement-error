@@ -1,7 +1,7 @@
 library(pacman)
 p_load(dplyr, tidyr, magrittr, ggplot2, cowplot, forcats, 
        data.table, hablar, patchwork, DT, RColorBrewer, 
-       stringr, readr, flextable)
+       stringr, readr, flextable, progress, janitor, mirt)
 
 # Compile results ----------------------------------------
 
@@ -12,29 +12,950 @@ sim_results_list <- sim_results_files %>%
 sim_results <- sim_results_list %>%
   purrr::map(bind_rows, .id = "Formula") %>%
   bind_rows(.id = "sim") %>%
-  pivot_longer(cols = lm_est:brm_wmexy_est,
+  pivot_longer(cols = lm_int:brm_wmexy_pp_lt0,
                names_to = "Model", 
                values_to = "Estimate") %>%
-  mutate(MeasurementError = case_when(Model == "lm_est" ~ "None (LM)",
-                                      Model == "pv_est" ~ "None (LM) / PV",
-                                      Model == "brm_nome_est" ~ "None (BRMS)",
-                                      Model == "brm_wmex_est" ~ "On X (BRMS)",
-                                      Model == "brm_wmey_est" ~ "On Y (BRMS)",
-                                      Model == "brm_wmexy_est" ~ "On X and Y (BRMS)")) %>%
+  mutate(MeasurementError = case_when(str_detect(Model, "lm") ~ "None (LM)",
+                                      str_detect(Model, "pv") ~ "None (LM) / PV",
+                                      str_detect(Model, "nome") ~ "None (BRMS)",
+                                      str_detect(Model, "wmex_") ~ "On X (BRMS)",
+                                      str_detect(Model, "wmey") ~ "On Y (BRMS)",
+                                      str_detect(Model, "wmexy") ~ "On X and Y (BRMS)")) %>%
   rename(true_beta = beta) %>%
   mutate(Estimate = case_when(lm_pass == FALSE & Model == "lm_est" ~ NA,
                               lm_pass == FALSE & Model == "pv_est" ~ NA,
-                              brm_nome_pass == FALSE & Model == "brm_nome_est" ~ NA,
-                              brm_wmey_pass == FALSE & Model == "brm_wmey_est" ~ NA,
-                              brm_wmex_pass == FALSE & Model == "brm_wmex_est" ~ NA,
-                              brm_wmexy_pass == FALSE & Model == "brm_wmexy_est" ~ NA,
-                              TRUE ~ Estimate))
+                              brm_nome_pass == FALSE & str_detect(Model, "brm_nome_") ~ NA,
+                              brm_wmey_pass == FALSE & str_detect(Model, "brm_wmey_") ~ NA,
+                              brm_wmex_pass == FALSE & str_detect(Model, "brm_wmex_") ~ NA,
+                              brm_wmexy_pass == FALSE & str_detect(Model, "brm_wmexy_") ~ NA,
+                              TRUE ~ Estimate),
+         Standardized = str_detect(Model, "est_st"),
+         sim = as.numeric(sim))
 
+sim_results$r_xx <- NA
+sim_results$r_yy <- NA
+
+sim_results %>%
+  filter(!is.na(Estimate),
+         MeasurementError == "On X (BRMS)") %>%
+  get_dupes(Formula, N, true_beta, Estimate, mean_mem_fs)
+
+# sim_results <- sim_results %>% filter(!sim == 163)
+
+pb <- progress_bar$new(
+  format = "  processing [:bar] :current of :total (:percent) eta: :eta",
+  total = max(sim_results$sim), clear = FALSE, width= 60)
+
+
+
+for(i in unique(sim_results$sim)) {
+  
+  pb$tick()
+  
+  for(n in unique(sim_results$N)) {
+    for(b in unique(sim_results$true_beta)) {
+      
+      
+      
+      temp <- fread(paste0("simdata/simdata_", i, "_N=", n, "_B=", b, ".csv"))
+      rxx_mem <- temp %>%
+        select(Mem_FS, Mem_FS_SE) %>%
+        rlang::set_names("Mem", "SE_Mem") %>%
+        as.matrix() %>%
+        empirical_rxx()
+      
+      rxx_vs <- temp %>%
+        select(VS_FS, VS_FS_SE) %>%
+        rlang::set_names("VS", "SE_VS") %>%
+        as.matrix() %>%
+        empirical_rxx()
+      
+      rxx_lan <- temp %>%
+        select(Lan_FS, Lan_FS_SE) %>%
+        rlang::set_names("Lan", "SE_Lan") %>%
+        as.matrix() %>%
+        empirical_rxx()
+      
+      rxx_ef <- temp %>%
+        select(EF_FS, EF_FS_SE) %>%
+        rlang::set_names("EF", "SE_EF") %>%
+        as.matrix() %>%
+        empirical_rxx()
+      
+      xvar <- str_split_i(sim_results$Formula[sim_results$sim == i & sim_results$N == n & sim_results$true_beta == b], "_on_", 2)
+      yvar <- str_split_i(sim_results$Formula[sim_results$sim == i & sim_results$N == n & sim_results$true_beta == b], "_on_", 1)
+      
+      rel_xy <- data.frame(x = xvar, y = yvar, rel_x = NA, rel_y = NA)
+      
+      rel_xy$rel_x[rel_xy$x == "mem"] <- rxx_mem
+      rel_xy$rel_y[rel_xy$y == "mem"] <- rxx_mem
+      
+      rel_xy$rel_x[rel_xy$x == "v"] <- rxx_vs
+      rel_xy$rel_y[rel_xy$y == "v"] <- rxx_vs
+      
+      rel_xy$rel_x[rel_xy$x == "l"] <- rxx_lan
+      rel_xy$rel_y[rel_xy$y == "l"] <- rxx_lan
+      
+      rel_xy$rel_x[rel_xy$x == "ef"] <- rxx_ef
+      rel_xy$rel_y[rel_xy$y == "ef"] <- rxx_ef
+      
+  
+      sim_results$r_xx[sim_results$sim == i & sim_results$N == n & sim_results$true_beta == b] <- rel_xy$rel_x
+      sim_results$r_yy[sim_results$sim == i & sim_results$N == n & sim_results$true_beta == b] <- rel_xy$rel_y
+      
+    }
+  }
+}
+
+att_cor <- sim_results %>%
+  filter(MeasurementError == "None (LM)") %>%
+  mutate(MeasurementError = "None (Atten)",
+         Estimate = Estimate/(sqrt(r_xx * r_yy)))
+  
+
+sim_results <- sim_results %>%
+  bind_rows(att_cor)
 
 sim_results_plotdat <- sim_results %>%
+  filter(str_detect(Model, "_est")) %>%
   mutate(difference = Estimate - true_beta,
          pct_bias = 100*difference/true_beta,
          MeasurementError_fac = factor(MeasurementError) %>%
+           fct_relevel(c("None (LM)", "None (Atten)", "None (LM) / PV", "None (BRMS)", "On X (BRMS)", 
+                         "On Y (BRMS)", "On X and Y (BRMS)"
+           )),
+         true_beta_fac = factor(true_beta, 
+                                levels = unique(true_beta), 
+                                labels = paste0("\u03B2 = ", 
+                                                unique(true_beta))),
+         N_fac = factor(N, 
+                        levels = unique(N), 
+                        labels = paste0("N = ", 
+                                        unique(N))),
+         Regression = factor(Formula, levels = c("mem_on_v", 
+                                                 "v_on_mem",
+                                                 "mem_on_l", 
+                                                 "l_on_mem", 
+                                                 "mem_on_ef",
+                                                 "ef_on_mem",
+                                                 "l_on_ef",
+                                                 "ef_on_l"),
+                             labels = c("Mem ~ VS",
+                                        "VS ~ Mem",
+                                        "Mem ~ Lan",
+                                        "Lan ~ Mem",
+                                        "Mem ~ EF",
+                                        "EF ~ Mem",
+                                        "Lan ~ EF",
+                                        "EF ~ Lan")),
+         Type = factor(Standardized, levels = c(FALSE, TRUE), labels = c("Unstandardized", "Standardized"))) %>%
+  group_by(MeasurementError, N, Regression, Standardized) %>%
+  mutate(Simulations = n()) %>%
+  ungroup()
+
+  
+
+
+sim_results %>%
+  filter(str_detect(Model, "_est")) %>%
+  group_by(MeasurementError, N, true_beta, Formula, Standardized) %>%
+  summarise(m = mean_(Estimate),
+            sd = sd_(Estimate),
+            n = sum_(!is.na(Estimate))) %>%
+  mutate(pct = 100*n/length(sim_results_files)) %>%
+  data.frame()
+
+sim_results_summary <- sim_results_plotdat %>%
+  group_by(MeasurementError_fac, N_fac, true_beta_fac, Regression, Standardized) %>%
+  summarise(m = mean_(difference),
+            sd = sd_(difference),
+            n = sum_(!is.na(difference))) %>%
+  mutate(pct = 100*n/length(sim_results_files))
+
+
+sim_results_summary %>%
+  datatable(options = list(pageLength = 20)) %>%
+  formatRound(6:7, 2)
+
+sim_results_summary %>% 
+  filter(str_detect(Regression, "VS"), 
+         Standardized,
+         MeasurementError_fac %in% c("On X (BRMS)", "On Y (BRMS)", "On X and Y (BRMS)")) %>%
+  select(N_fac, pct, Regression, true_beta_fac, MeasurementError_fac) %>%
+  pivot_wider(id_cols = c(Regression, true_beta_fac, N_fac),
+              names_from = MeasurementError_fac,
+              values_from = pct) %>%
+  arrange(Regression, true_beta_fac, N_fac)
+
+n_success_plot1 <- ggplot(sim_results_summary %>% filter(str_detect(Regression, "VS"), 
+                                                         Standardized,
+                                                         MeasurementError_fac %in% c("On X (BRMS)", "On Y (BRMS)", "On X and Y (BRMS)")), 
+                          aes(x = N_fac, y = pct, fill = Regression)) +
+  geom_col(position = "dodge") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "turbo") +
+  scale_fill_brewer(palette = "Dark2") +
+  xlab("Sample Size") +
+  ylab("Percent of Acceptable Simulations") +
+  facet_grid(true_beta_fac ~ MeasurementError_fac, scales = "free_y") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10),
+        axis.text = element_text(size = 10))
+
+ggsave("plots/n_success1.png", n_success_plot1, height = 2.5, width = 10.5, units = "in")
+
+n_success_plot2 <- ggplot(sim_results_summary %>% filter(!str_detect(Regression, "VS"), !Standardized), 
+                          aes(x = N_fac, y = pct, fill = Regression)) +
+  geom_col(position = position_dodge2(reverse = TRUE), colour = "black") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  xlab("Sample Size") +
+  ylab("Percent of Acceptable Simulations") +
+  facet_grid(true_beta_fac ~ MeasurementError_fac, scales = "free_y") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10),
+        axis.text = element_text(size = 10)) +
+  coord_flip()
+
+ggsave("plots/n_success2.png", n_success_plot2, height = 7.51, width = 13.32/4, units = "in")
+
+
+ggplot(sim_results_plotdat %>%
+         filter(true_beta == 0.25, !Standardized), aes(x = N_fac, y = Estimate, fill = Regression)) +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  #stat_summary(fun.data = mean_se, geom = "col", position = "dodge") +
+  #stat_summary(fun.data = mean_se, geom = "errorbar", position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge") +
+  geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = true_beta), lty = 2, colour = "red") +
+  ylab("Estimated Effect Size") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(option = "turbo") +
+  scale_colour_viridis_d(option = "turbo") +
+  ggtitle("True Beta = 0.25")
+
+ggplot(sim_results_plotdat %>%
+         filter(true_beta == 0.25, Standardized), aes(x = N_fac, y = Estimate, fill = Regression)) +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  #stat_summary(fun.data = mean_se, geom = "col", position = "dodge") +
+  #stat_summary(fun.data = mean_se, geom = "errorbar", position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge") +
+  geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = true_beta), lty = 2, colour = "red") +
+  ylab("Estimated Effect Size") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(option = "turbo") +
+  scale_colour_viridis_d(option = "turbo") +
+  ggtitle("True Beta = 0.25")
+
+
+ggplot(sim_results_plotdat %>%
+         filter(true_beta == 0.5, !Standardized), aes(x = N_fac, y = Estimate, fill = Regression)) +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  #stat_summary(fun.data = mean_se, geom = "col", position = "dodge") +
+  #stat_summary(fun.data = mean_se, geom = "errorbar", position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge") +
+  geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = true_beta), lty = 2, colour = "red") +
+  ylab("Estimated Effect Size") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(option = "turbo") +
+  scale_colour_viridis_d(option = "turbo") +
+  ggtitle("True Beta = 0.5")
+#scale_fill_brewer(palette = "Dark2") +
+#scale_colour_brewer(palette = "Dark2")
+
+ggplot(sim_results_plotdat %>%
+         filter(true_beta == 0.5, Standardized), aes(x = N_fac, y = Estimate, fill = Regression)) +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  #stat_summary(fun.data = mean_se, geom = "col", position = "dodge") +
+  #stat_summary(fun.data = mean_se, geom = "errorbar", position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge") +
+  geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = true_beta), lty = 2, colour = "red") +
+  ylab("Estimated Effect Size") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(option = "turbo") +
+  scale_colour_viridis_d(option = "turbo") +
+  ggtitle("True Beta = 0.5")
+#scale_fill_brewer(palette = "Dark2") +
+#scale_colour_brewer(palette = "Dark2")
+
+bias_plot1_b0.25u <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
+                                                           true_beta == 0.25, !Standardized), 
+                            aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias (Unstandardized Estimates)", subtitle = "\u03B2 = 0.25")
+
+ggsave("plots/bias1_b0.25u.png", bias_plot1_b0.25u, height = 2.5, width = 10.5, units = "in")
+
+bias_plot1_b0.25s <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
+                                                           true_beta == 0.25, Standardized), 
+                            aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias (Standardized Estimates)", subtitle = "\u03B2 = 0.25")
+
+ggsave("plots/bias1_b0.25s.png", bias_plot1_b0.25s, height = 2.5, width = 10.5, units = "in")
+
+bias_plot1_b0.5u <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
+                                                          true_beta == 0.5, !Standardized), 
+                           aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias (Unstandardized Estimates)", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/bias1_b0.5u.png", bias_plot1_b0.5u, height = 2.5, width = 10.5, units = "in")
+
+bias_plot1_b0.5s <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
+                                                          true_beta == 0.5, Standardized), 
+                           aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias (Standardized Estimates)", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/bias1_b0.5s.png", bias_plot1_b0.5s, height = 2.5, width = 10.5, units = "in")
+
+bias_plot2_0.25u <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                          true_beta == 0.25, !Standardized), 
+                           aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Bias (Unstandardized Estimates)", subtitle = "\u03B2 = 0.25")
+
+ggsave("plots/bias2_0.25u.png", bias_plot2_0.25u, height = 7.51, width = 13.32, units = "in")
+
+bias_plot2_0.25s <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                          true_beta == 0.25, Standardized), 
+                           aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Bias (Standardized Estimates)", subtitle = "\u03B2 = 0.25")
+
+ggsave("plots/bias2_0.25s.png", bias_plot2_0.25s, height = 7.51, width = 13.32, units = "in")
+
+bias_plot2_b0.5u <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                          true_beta == 0.5, !Standardized), 
+                           aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Bias (Unstandardized Estimates)", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/bias2_b0.5u.png", bias_plot2_b0.5u, height = 7.51, width = 13.32, units = "in")
+
+bias_plot2_b0.5s <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
+                                                          true_beta == 0.5, Standardized), 
+                           aes(x = N_fac, y = difference, fill = Regression)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Estimated vs. True Effect Size (Bias)") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Bias (Standardized Estimates)", subtitle = "\u03B2 = 0.5")
+
+ggsave("plots/bias2_b0.5s.png", bias_plot2_b0.5s, height = 7.51, width = 13.32, units = "in")
+
+pct_bias_plot1u <- ggplot(sim_results_plotdat %>% 
+                            filter(str_detect(Regression, "VS"), !Standardized),
+                          aes(x = N_fac, y = pct_bias, fill = true_beta_fac)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "True \u03B2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias (Unstandardized Estimates)")
+
+ggsave("plots/pct_bias1u.png", pct_bias_plot1u, height = 5, width = 10.5, units = "in")
+
+pct_bias_plot1s <- ggplot(sim_results_plotdat %>% 
+                            filter(str_detect(Regression, "VS"), Standardized),
+                          aes(x = N_fac, y = pct_bias, fill = true_beta_fac)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "True \u03B2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias (Standardized Estimates)")
+
+ggsave("plots/pct_bias1s.png", pct_bias_plot1s, height = 5, width = 10.5, units = "in")
+
+
+pct_bias_plot2u <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"), !Standardized), 
+                          aes(x = N_fac, y = pct_bias, fill = true_beta_fac)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo", name = "True \u03B2") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Percent Bias (Unstandardized Estimates)")
+
+ggsave("plots/pct_bias2u.png", pct_bias_plot2u, height = 7.51, width = 13.32, units = "in")
+
+pct_bias_plot2s <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"), Standardized), 
+                          aes(x = N_fac, y = pct_bias, fill = true_beta_fac)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("Sample Size") +
+  theme_cowplot() +
+  scale_fill_viridis_d(begin = .3, option = "turbo", name = "True \u03B2") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Percent Bias (Standardized Estimates)")
+
+ggsave("plots/pct_bias2s.png", pct_bias_plot2s, height = 7.51, width = 13.32, units = "in")
+
+
+# Split Ns, combine std ---------------------------------------------------
+
+bias1_N100 <- ggplot(sim_results_plotdat %>% 
+                       filter(str_detect(Regression, "VS"), N == 100),
+                     aes(x = true_beta_fac, y = difference, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias", subtitle = "N = 100")
+
+ggsave("plots/bias1_N100.png", bias1_N100, height = 5, width = 10.5, units = "in")
+
+bias1_N500 <- ggplot(sim_results_plotdat %>% 
+                       filter(str_detect(Regression, "VS"), N == 500),
+                     aes(x = true_beta_fac, y = difference, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias", subtitle = "N = 500")
+
+ggsave("plots/bias1_N500.png", bias1_N500, height = 5, width = 10.5, units = "in")
+
+bias2_N100 <- ggplot(sim_results_plotdat %>% 
+                       filter(!str_detect(Regression, "VS"), N == 100),
+                     aes(x = true_beta_fac, y = difference, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias", subtitle = "N = 100")
+
+ggsave("plots/bias2_N100.png", bias2_N100, height = 7.51, width = 13.32, units = "in")
+
+bias2_N500 <- ggplot(sim_results_plotdat %>% 
+                       filter(!str_detect(Regression, "VS"), N == 500),
+                     aes(x = true_beta_fac, y = difference, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Bias", subtitle = "N = 500")
+
+ggsave("plots/bias2_N500.png", bias2_N500, height = 7.51, width = 13.32, units = "in")
+
+
+pct_bias1_N100 <- ggplot(sim_results_plotdat %>% 
+                           filter(str_detect(Regression, "VS"), N == 100),
+                         aes(x = true_beta_fac, y = pct_bias, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "N = 100")
+
+ggsave("plots/pct_bias1_N100.png", pct_bias1_N100, height = 5, width = 10.5, units = "in")
+
+pct_bias1_N500 <- ggplot(sim_results_plotdat %>% 
+                           filter(str_detect(Regression, "VS"), N == 500),
+                         aes(x = true_beta_fac, y = pct_bias, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "N = 500")
+
+ggsave("plots/pct_bias1_N500.png", pct_bias1_N500, height = 5, width = 10.5, units = "in")
+
+pct_bias2_N100 <- ggplot(sim_results_plotdat %>% 
+                           filter(!str_detect(Regression, "VS"), N == 100),
+                         aes(x = true_beta_fac, y = pct_bias, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "N = 100")
+
+ggsave("plots/pct_bias2_N100.png", pct_bias2_N100, height = 7.51, width = 13.32, units = "in")
+
+pct_bias2_N500 <- ggplot(sim_results_plotdat %>% 
+                           filter(!str_detect(Regression, "VS"), N == 500),
+                         aes(x = true_beta_fac, y = pct_bias, fill = Type)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("Percent Bias") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  #scale_fill_viridis_d(option = "cividis", begin = .4) +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 8),
+        axis.text = element_text(size = 10)) +
+  ggtitle("Percent Bias", subtitle = "N = 500")
+
+ggsave("plots/pct_bias2_N500.png", pct_bias2_N500, height = 7.51, width = 13.32, units = "in")
+
+
+# Relative bias --------
+
+
+relative_bias1_N100 <- sim_results_plotdat %>%
+  filter(str_detect(Regression, "VS"), N == 100, Type == "Standardized") %>%
+  group_by(N, Regression, sim, true_beta) %>%
+  mutate(vsLM = abs(difference) - abs(first(difference))) %>%
+  ungroup() %>%
+  ggplot(aes(x = true_beta_fac, y = vsLM)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("|Bias| Relative to None (LM)") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Relative Bias (N = 100)", subtitle = "Compared to standardized estimate from linear model with EAP factor scores (left facet): below the horizontal dashed red line means less bias.")
+
+ggsave("plots/relative_bias1_N100.png", relative_bias1_N100, height = 7.51, width = 13.32, units = "in", bg = "white")
+
+relative_bias1_N500 <- sim_results_plotdat %>%
+  filter(str_detect(Regression, "VS"), N == 500, Type == "Standardized") %>%
+  group_by(N, Regression, sim, true_beta) %>%
+  mutate(vsLM = abs(difference) - abs(first(difference))) %>%
+  ungroup() %>%
+  ggplot(aes(x = true_beta_fac, y = vsLM)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("|Bias| Relative to None (LM)") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Relative Bias (N = 500)", subtitle = "Compared to standardized estimate from linear model with EAP factor scores (left facet): below the horizontal dashed red line means less bias.")
+
+ggsave("plots/relative_bias1_N500.png", relative_bias1_N500, height = 7.51, width = 13.32, units = "in", bg = "white")
+
+
+relative_bias_N100 <- sim_results_plotdat %>%
+  filter(!str_detect(Regression, "VS"), N == 100, Type == "Standardized") %>%
+  group_by(N, Regression, sim, true_beta) %>%
+  mutate(vsLM = abs(difference) - abs(first(difference))) %>%
+  ungroup() %>%
+  ggplot(aes(x = true_beta_fac, y = vsLM)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("|Bias| Relative to None (LM)") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Relative Bias (N = 100)", subtitle = "Compared to standardized estimate from linear model with EAP factor scores (left facet): below the horizontal dashed red line means less bias.")
+
+ggsave("plots/relative_bias_N100.png", relative_bias_N100, height = 7.51, width = 13.32, units = "in", bg = "white")
+
+relative_bias_N500 <- sim_results_plotdat %>%
+  filter(!str_detect(Regression, "VS"), N == 500, Type == "Standardized") %>%
+  group_by(N, Regression, sim, true_beta) %>%
+  mutate(vsLM = abs(difference) - abs(first(difference))) %>%
+  ungroup() %>%
+  ggplot(aes(x = true_beta_fac, y = vsLM)) +
+  #geom_col(position = "dodge") +
+  #geom_jitter() +
+  #stat_summary(fun = mean, geom = "point") + 
+  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
+               position = "dodge", colour = "black") +
+  #geom_boxplot(position = "dodge", fill = NA) +
+  #geom_violin(position = "dodge") +
+  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
+  facet_grid(Regression ~ MeasurementError_fac) +
+  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
+  ylab("|Bias| Relative to None (LM)") +
+  xlab("True \u03B2") +
+  theme_cowplot() +
+  scale_fill_brewer(palette = "Dark2", name = "Estimate Type") +
+  #scale_fill_brewer(palette = "Dark2") +
+  #scale_colour_brewer(palette = "Dark2") +
+  theme(axis.title.y = element_text(size=10),
+        strip.text = element_text(size = 10)) +
+  ggtitle("Relative Bias (N = 500)", subtitle = "Compared to standardized estimate from linear model with EAP factor scores (left facet): below the horizontal dashed red line means less bias.")
+
+ggsave("plots/relative_bias_N500.png", relative_bias_N500, height = 7.51, width = 13.32, units = "in", bg = "white")
+
+
+# 
+# ggplot(x_xobs_y_fs, aes(x = y, y = SE_Memory)) +
+#   geom_point() +
+#   geom_smooth() +
+#   ylim(0, .3) +
+#   xlab("True Theta") +
+#   ylab("Standard Error of ADNI Memory") +
+#   theme_cowplot()
+
+
+sim_results_other <- sim_results %>%
+  filter(!str_detect(Model, "_est")) %>%
+  mutate(MeasurementError_fac = factor(MeasurementError) %>%
            fct_relevel(c("None (LM)", "None (LM) / PV", "None (BRMS)", "On X (BRMS)", 
                          "On Y (BRMS)", "On X and Y (BRMS)"
            )),
@@ -61,298 +982,36 @@ sim_results_plotdat <- sim_results %>%
                                         "Mem ~ EF",
                                         "EF ~ Mem",
                                         "Lan ~ EF",
-                                        "EF ~ Lan"))) %>%
-  group_by(MeasurementError, N, Regression) %>%
+                                        "EF ~ Lan")),
+         Type = case_when(str_detect(Model, "_int$") ~ "Intercept of Y",
+                          str_detect(Model, "_int_y") ~ "Intercept of Y",
+                          str_detect(Model, "_int_x") ~ "Intercept of X",
+                          str_detect(Model, "_sig$") ~ "Sigma of Y",
+                          str_detect(Model, "_sig_y") ~ "Sigma of Y",
+                          str_detect(Model, "_sig_x") ~ "Sigma of X",
+                          str_detect(Model, "_pp_lt0") ~ "Posterior Probability of Estimate < 0")) %>%
+  group_by(MeasurementError, N, Regression, Standardized) %>%
   mutate(Simulations = n()) %>%
   ungroup()
 
-sim_results %>%
-  group_by(MeasurementError, N, true_beta, Formula) %>%
-  summarise(m = mean_(Estimate),
-            sd = sd_(Estimate),
-            n = sum_(!is.na(Estimate))) %>%
-  mutate(pct = 100*n/length(sim_results_files)) %>%
-  data.frame()
+sim_results_other %>%
+  filter(!str_detect(Regression, "VS"), N == 500, str_detect(Type, "Intercept")) %>%
+  ggplot(aes(x = true_beta_fac, y = Estimate, fill = Type)) +
+  geom_hline(yintercept = 0, colour = "red", lty = 2) +
+  geom_violin() +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") 
 
-sim_results_summary <- sim_results_plotdat %>%
-  group_by(MeasurementError_fac, N_fac, true_beta_fac, Regression) %>%
-  summarise(m = mean_(difference),
-            sd = sd_(difference),
-            n = sum_(!is.na(difference))) %>%
-  mutate(pct = 100*n/length(sim_results_files))
+sim_results_other %>%
+  filter(!str_detect(Regression, "VS"), N == 500, str_detect(Type, "Sigma")) %>%
+  ggplot(aes(x = true_beta_fac, y = Estimate, fill = Type)) +
+  geom_violin() +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed")
 
-
-sim_results_summary %>%
-  datatable(options = list(pageLength = 20)) %>%
-  formatRound(5:6, 2)
-
-n_success_plot1 <- ggplot(sim_results_summary %>% filter(str_detect(Regression, "VS")), 
-                          aes(x = N_fac, y = pct, fill = Regression)) +
-  geom_col(position = "dodge") +
-  theme_cowplot() +
-  #scale_fill_viridis_d(option = "turbo") +
-  scale_fill_brewer(palette = "Dark2") +
-  xlab("Sample Size") +
-  ylab("Percent of Acceptable Simulations") +
-  facet_grid(true_beta_fac ~ MeasurementError_fac, scales = "free_y") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 10),
-        axis.text = element_text(size = 10))
-
-ggsave("plots/n_success1.png", n_success_plot1, height = 2.5, width = 10.5, units = "in")
-
-n_success_plot2 <- ggplot(sim_results_summary %>% filter(!str_detect(Regression, "VS")), 
-                          aes(x = N_fac, y = pct, fill = Regression)) +
-  geom_col(position = position_dodge2(reverse = TRUE), colour = "black") +
-  theme_cowplot() +
-  scale_fill_viridis_d(begin = .3, option = "turbo") +
-  #scale_fill_brewer(palette = "Dark2") +
-  xlab("Sample Size") +
-  ylab("Percent of Acceptable Simulations") +
-  facet_grid(true_beta_fac ~ MeasurementError_fac, scales = "free_y") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 10),
-        axis.text = element_text(size = 10)) +
-  coord_flip()
-
-ggsave("plots/n_success2.png", n_success_plot2, height = 7.51, width = 13.32/4, units = "in")
-
-
-ggplot(sim_results_plotdat %>%
-         filter(true_beta == 0.25), aes(x = N_fac, y = Estimate, fill = Regression)) +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  #stat_summary(fun.data = mean_se, geom = "col", position = "dodge") +
-  #stat_summary(fun.data = mean_se, geom = "errorbar", position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge") +
-  geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
-  geom_hline(aes(yintercept = true_beta), lty = 2, colour = "red") +
-  ylab("Estimated Effect Size") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  scale_fill_viridis_d(option = "turbo") +
-  scale_colour_viridis_d(option = "turbo") +
-  ggtitle("True Beta = 0.25")
-
-
-ggplot(sim_results_plotdat %>%
-         filter(true_beta == 0.5), aes(x = N_fac, y = Estimate, fill = Regression)) +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  #stat_summary(fun.data = mean_se, geom = "col", position = "dodge") +
-  #stat_summary(fun.data = mean_se, geom = "errorbar", position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge") +
-  geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac, scales = "fixed") +
-  geom_hline(aes(yintercept = true_beta), lty = 2, colour = "red") +
-  ylab("Estimated Effect Size") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  scale_fill_viridis_d(option = "turbo") +
-  scale_colour_viridis_d(option = "turbo") +
-  ggtitle("True Beta = 0.5")
-#scale_fill_brewer(palette = "Dark2") +
-#scale_colour_brewer(palette = "Dark2")
-
-bias_plot1_b0.25 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
-                                                          true_beta == 0.25), 
-                           aes(x = N_fac, y = difference, fill = Regression)) +
-  #geom_col(position = "dodge") +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge", fill = NA) +
-  #geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
-  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
-  ylab("Estimated vs. True Effect Size (Bias)") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  #scale_fill_viridis_d(option = "cividis", begin = .4) +
-  scale_fill_brewer(palette = "Dark2") +
-  #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 8),
-        axis.text = element_text(size = 10)) +
-  ggtitle("Bias", subtitle = "\u03B2 = 0.25")
-
-ggsave("plots/bias1_b0.25.png", bias_plot1_b0.25, height = 2.5, width = 10.5, units = "in")
-
-bias_plot1_b0.5 <- ggplot(sim_results_plotdat %>% filter(str_detect(Regression, "VS"),
-                                                         true_beta == 0.5), 
-                          aes(x = N_fac, y = difference, fill = Regression)) +
-  #geom_col(position = "dodge") +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge", fill = NA) +
-  #geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
-  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
-  ylab("Estimated vs. True Effect Size (Bias)") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  #scale_fill_viridis_d(option = "cividis", begin = .4) +
-  scale_fill_brewer(palette = "Dark2") +
-  #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 8),
-        axis.text = element_text(size = 10)) +
-  ggtitle("Bias", subtitle = "\u03B2 = 0.5")
-
-ggsave("plots/bias1_b0.5.png", bias_plot1_b0.5, height = 2.5, width = 10.5, units = "in")
-
-bias_plot2_0.25 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
-                                                         true_beta == 0.25), 
-                          aes(x = N_fac, y = difference, fill = Regression)) +
-  #geom_col(position = "dodge") +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
-               position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge", fill = NA) +
-  #geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac) +
-  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
-  ylab("Estimated vs. True Effect Size (Bias)") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  scale_fill_viridis_d(begin = .3, option = "turbo") +
-  #scale_fill_brewer(palette = "Dark2") +
-  #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 10)) +
-  ggtitle("Bias", subtitle = "\u03B2 = 0.25")
-
-ggsave("plots/bias2_0.25.png", bias_plot2_0.25, height = 7.51, width = 13.32, units = "in")
-
-bias_plot2_b0.5 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS"),
-                                                         true_beta == 0.5), 
-                          aes(x = N_fac, y = difference, fill = Regression)) +
-  #geom_col(position = "dodge") +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
-               position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge", fill = NA) +
-  #geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac) +
-  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
-  ylab("Estimated vs. True Effect Size (Bias)") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  scale_fill_viridis_d(begin = .3, option = "turbo") +
-  #scale_fill_brewer(palette = "Dark2") +
-  #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 10)) +
-  ggtitle("Bias", subtitle = "\u03B2 = 0.5")
-
-ggsave("plots/bias2_b0.5.png", bias_plot2_b0.5, height = 7.51, width = 13.32, units = "in")
-
-pct_bias_plot1 <- ggplot(sim_results_plotdat %>% 
-                           filter(str_detect(Regression, "VS")),
-                         aes(x = N_fac, y = pct_bias, fill = true_beta_fac)) +
-  #geom_col(position = "dodge") +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = 1.96), position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge", fill = NA) +
-  #geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac, scales = "free") +
-  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
-  ylab("Percent Bias") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  #scale_fill_viridis_d(option = "cividis", begin = .4) +
-  scale_fill_brewer(palette = "Dark2", name = "True \u03B2") +
-  #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 8),
-        axis.text = element_text(size = 10)) +
-  ggtitle("Percent Bias")
-
-ggsave("plots/pct_bias1.png", pct_bias_plot1, height = 5, width = 10.5, units = "in")
-
-
-pct_bias_plot2 <- ggplot(sim_results_plotdat %>% filter(!str_detect(Regression, "VS")), 
-                         aes(x = N_fac, y = pct_bias, fill = true_beta_fac)) +
-  #geom_col(position = "dodge") +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
-               position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge", fill = NA) +
-  #geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac) +
-  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
-  ylab("Percent Bias") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  scale_fill_viridis_d(begin = .3, option = "turbo", name = "True \u03B2") +
-  #scale_fill_brewer(palette = "Dark2") +
-  #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 10)) +
-  ggtitle("Percent Bias")
-
-ggsave("plots/pct_bias2.png", pct_bias_plot2, height = 7.51, width = 13.32, units = "in")
-
-relative_bias <- sim_results_plotdat %>%
-  filter(!str_detect(Regression, "VS")) %>%
-  group_by(N, Regression, sim, true_beta) %>%
-  mutate(vsLM = abs(difference) - abs(first(difference))) %>%
-  ungroup() %>%
-  ggplot(aes(x = N_fac, y = vsLM, fill = true_beta_fac)) +
-  #geom_col(position = "dodge") +
-  #geom_jitter() +
-  #stat_summary(fun = mean, geom = "point") + 
-  stat_summary(fun.data = mean_se, geom = "col", position = "dodge", colour = "black") +
-  stat_summary(fun.data = mean_se, geom = "errorbar", fun.args = list(mult = qnorm(.975)), 
-               position = "dodge", colour = "black") +
-  #geom_boxplot(position = "dodge", fill = NA) +
-  #geom_violin(position = "dodge") +
-  #geom_smooth(method = "lm", se = TRUE, alpha = .15) +
-  facet_grid(Regression ~ MeasurementError_fac) +
-  geom_hline(aes(yintercept = 0), lty = 2, colour = "red") +
-  ylab("|Bias| Relative to None (LM)") +
-  xlab("Sample Size") +
-  theme_cowplot() +
-  scale_fill_viridis_d(begin = .3, option = "turbo", name = "True \u03B2") +
-  #scale_fill_brewer(palette = "Dark2") +
-  #scale_colour_brewer(palette = "Dark2") +
-  theme(axis.title.y = element_text(size=10),
-        strip.text = element_text(size = 10)) +
-  ggtitle("Relative Bias", subtitle = "Compared to linear model with EAP factor scores (left facet): below the horizontal dashed red line means less bias.")
-
-ggsave("plots/relative_bias.png", relative_bias, height = 7.51, width = 13.32, units = "in", bg = "white")
-
-
-
-# 
-# ggplot(x_xobs_y_fs, aes(x = y, y = SE_Memory)) +
-#   geom_point() +
-#   geom_smooth() +
-#   ylim(0, .3) +
-#   xlab("True Theta") +
-#   ylab("Standard Error of ADNI Memory") +
-#   theme_cowplot()
-
+sim_results_other %>%
+  filter(!str_detect(Regression, "VS"), N == 500, str_detect(Type, "Posterior Probability")) %>%
+  ggplot(aes(x = Estimate,  fill = true_beta_fac)) +
+  geom_histogram(position = "dodge") +
+  facet_grid(Regression ~ MeasurementError_fac, scales = "free")
 
 # Data patterns -----------------------------------------------------------
 
@@ -752,3 +1411,39 @@ sim_results_err %>%
   arrange(SE_Ratio_XtoY) %>%
   flextable()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+bias_table <- sim_results_plotdat %>%
+  mutate(domain_set = if_else(str_detect(Regression, "VS"),
+                              "Visuospatial", "Mem/Lan/EF")) %>%
+  group_by(domain_set, MeasurementError_fac, true_beta, N) %>%
+  summarise(
+    mean_bias     = mean(difference, na.rm = TRUE),
+    mean_pct_bias = mean(pct_bias,   na.rm = TRUE),
+    mcse          = sd(difference,   na.rm = TRUE) / sqrt(sum(!is.na(difference))),
+    n_converged   = sum(!is.na(difference)),
+    .groups = "drop"
+  ) %>%
+  arrange(domain_set, true_beta, N, MeasurementError_fac)
+
+write_csv(bias_table, "output/bias_summary_table.csv")
